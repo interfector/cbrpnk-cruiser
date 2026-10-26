@@ -1,4 +1,5 @@
 pub mod command;
+pub mod complete;
 pub mod process;
 pub mod terminal;
 

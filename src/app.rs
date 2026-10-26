@@ -13,6 +13,7 @@ use crate::config::{Config, ConfigLoad};
 use crate::fs::{CountRequest, CountWorker, Entry, ScanRequest, ScanResult, ScanWorker};
 use crate::input::{self, Intent};
 use crate::launch::command::{self, Builtin, Command};
+use crate::launch::complete;
 use crate::launch::process::{
     plan_executable, plan_external, plan_open, plan_shell, plan_terminal, spawn_detached,
     LaunchEvent, LaunchWorker, OutputStream,
@@ -206,6 +207,7 @@ impl App {
                 if is_key_pressed(KeyCode::F1)
                     || is_key_pressed(KeyCode::Escape)
                     || (input::shift_down() && is_key_pressed(KeyCode::Slash))
+                    || input::consume_help_close()
                 {
                     self.mode = Mode::Cruise;
                 }
@@ -220,6 +222,11 @@ impl App {
 
         if self.filter.is_some() {
             self.handle_filter_keys();
+            return;
+        }
+
+        if let Some(intent) = input::next_text_shortcut() {
+            self.handle_intent(intent);
             return;
         }
 
@@ -407,10 +414,40 @@ impl App {
             self.console.scroll_down(6);
             return;
         }
+        if is_key_pressed(KeyCode::Tab) {
+            self.complete_console_input();
+            return;
+        }
         while let Some(character) = get_char_pressed() {
             if !character.is_control() {
                 self.console.input.push(character);
             }
+        }
+    }
+
+    fn complete_console_input(&mut self) {
+        let Some(completion) =
+            complete::complete_line(&self.console.input, &self.cwd, self.show_hidden)
+        else {
+            return;
+        };
+        self.console.input = completion.line;
+        if completion.candidates.len() > 1 {
+            const SHOWN: usize = 24;
+            let shown = &completion.candidates[..completion.candidates.len().min(SHOWN)];
+            for (index, chunk) in shown.chunks(6).enumerate() {
+                let prefix = if index == 0 { "[tab] " } else { "      " };
+                self.console
+                    .push(format!("{prefix}{}", chunk.join("  ")), Tone::Muted);
+            }
+            if completion.candidates.len() > SHOWN {
+                self.console.push(
+                    format!("      ... {} more", completion.candidates.len() - SHOWN),
+                    Tone::Muted,
+                );
+            }
+        } else if completion.candidates.is_empty() {
+            self.console.push("[tab] no matches", Tone::Muted);
         }
     }
 
@@ -524,6 +561,7 @@ impl App {
             "external:  ls -la, git status, etc. run as argv without a shell",
             "shell:     !<command> runs through $SHELL -lc, explicitly",
             "keys:      Up/Down history, PageUp/PageDown scroll, Esc close",
+            "           Tab completes built-ins and paths",
         ] {
             self.console.push(line, Tone::Muted);
         }

@@ -119,7 +119,9 @@ A leading `!` explicitly opts into shell execution:
 ```
 
 Output from console commands is captured and shown in the console. Interactive
-programs should be run with `term`.
+programs should be run with `term`. `Tab` completes built-ins and the first
+path argument of `cd`, `ls`, `open`, `run`, and `term`; multiple matches are
+listed in the console.
 
 ## Configuration
 
@@ -155,7 +157,8 @@ log_level = "info"
 
 - Pointer steering is armed by mouse motion or a thrust click; idle pointers
   do not rotate the camera.
-- Tab completion is not yet implemented in the console.
+- External command names and arguments are not tab-completed; completion
+  covers built-ins and their first path argument.
 - `.desktop` files are opened through the system handler, not parsed.
 - Windows is not yet a supported target.
 

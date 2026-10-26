@@ -649,6 +649,7 @@ pub fn draw_help(fonts: &Fonts) {
                 "term [dir]      external terminal",
                 "reload          rescan sector",
                 "home / root     jump",
+                "Tab             complete built-ins/paths",
                 "!<command>      explicit shell mode",
                 "quit            exit application",
             ],

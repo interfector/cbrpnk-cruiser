@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use macroquad::prelude::{
-    get_last_key_pressed, is_key_down, is_key_pressed, is_mouse_button_down,
+    get_char_pressed, get_last_key_pressed, is_key_down, is_key_pressed, is_mouse_button_down,
     is_mouse_button_pressed, mouse_delta_position, mouse_position, screen_height, screen_width,
     KeyCode, MouseButton,
 };
@@ -43,6 +43,34 @@ pub fn any_input_pressed() -> bool {
     get_last_key_pressed().is_some()
         || is_mouse_button_pressed(MouseButton::Left)
         || is_mouse_button_pressed(MouseButton::Right)
+}
+
+pub fn text_shortcut(character: char) -> Option<Intent> {
+    match character {
+        ':' => Some(Intent::Console),
+        '?' => Some(Intent::Help),
+        '/' => Some(Intent::Filter),
+        '~' => Some(Intent::Home),
+        _ => None,
+    }
+}
+
+pub fn next_text_shortcut() -> Option<Intent> {
+    while let Some(character) = get_char_pressed() {
+        if let Some(intent) = text_shortcut(character) {
+            return Some(intent);
+        }
+    }
+    None
+}
+
+pub fn consume_help_close() -> bool {
+    while let Some(character) = get_char_pressed() {
+        if character == '?' {
+            return true;
+        }
+    }
+    false
 }
 
 pub fn cruise_intent(locked: bool) -> Option<Intent> {
@@ -201,5 +229,14 @@ mod tests {
         assert!((up + 1.0).abs() < 0.001);
         let (near, _) = pointer_steer((560.0, 300.0), 1000.0, 600.0);
         assert!(near > 0.0 && near < 0.05);
+    }
+
+    #[test]
+    fn text_shortcuts_are_layout_independent() {
+        assert_eq!(text_shortcut(':'), Some(Intent::Console));
+        assert_eq!(text_shortcut('?'), Some(Intent::Help));
+        assert_eq!(text_shortcut('/'), Some(Intent::Filter));
+        assert_eq!(text_shortcut('~'), Some(Intent::Home));
+        assert_eq!(text_shortcut('t'), None);
     }
 }

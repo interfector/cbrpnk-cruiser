@@ -224,7 +224,9 @@ behavior and document it).
 
 ### 4.2 Default controls
 
-Keyboard is the primary path. Mouse is an accelerator.
+Keyboard is the primary path. Mouse is an accelerator. Punctuation shortcuts
+must use the produced character (`:`, `?`, `/`, `~`) as well as physical key
+codes so non-US keyboard layouts work.
 
 | Input | Action |
 | --- | --- |
@@ -238,7 +240,7 @@ Keyboard is the primary path. Mouse is an accelerator.
 | `Ctrl` | Brake |
 | Mouse position | Steer relative to center in Cruise (joystick style) |
 | Mouse wheel | Adjust cruise speed, not camera FOV |
-| `Tab` | Toggle Lock mode / cycle focus |
+| `Tab` | Toggle Lock mode / cycle focus; completes input in Console |
 | `J` / `K` | Previous / next node in the current sector |
 | `Enter` | Context action: enter directory, launch executable, open file |
 | `Backspace` or `H` | Go to parent directory |
@@ -342,7 +344,11 @@ Rules:
 - `.desktop` files are handed to `xdg-open`/`gio open` in v1. Do not parse
   or execute their `Exec=` fields manually.
 - Keep history in memory for the session. Up/Down recalls. Tab completes
-  built-ins and filesystem paths, not arbitrary shell aliases.
+  built-ins and filesystem paths, not arbitrary shell aliases. Complete the
+  first argument of `cd`, `ls`, `open`, `run`, and `term`; use directory-only
+  matches for `cd` and `term`. Insert quoted paths when needed, extend a
+  shared prefix, and list multiple matches in the console. Never run filesystem
+  traversal or shell expansion during completion.
 
 ### 4.6 Launch safety
 
@@ -418,6 +424,7 @@ src/
   launch/
     mod.rs          # launch requests and events
     command.rs      # console parser + built-ins
+    complete.rs     # console tab completion
     process.rs      # spawn/detach/capture
     terminal.rs     # terminal detection/adapters
   util.rs           # stable hashing, path display, formatting
