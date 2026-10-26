@@ -10,7 +10,7 @@ use macroquad::prelude::{
 use crate::camera::Camera;
 use crate::cli::Cli;
 use crate::config::{Config, ConfigLoad};
-use crate::fs::{Entry, ScanRequest, ScanResult, ScanWorker};
+use crate::fs::{CountRequest, CountWorker, Entry, ScanRequest, ScanResult, ScanWorker};
 use crate::input::{self, Intent};
 use crate::launch::command::{self, Builtin, Command};
 use crate::launch::process::{
@@ -20,9 +20,11 @@ use crate::launch::process::{
 use crate::launch::terminal::detect as detect_terminal;
 use crate::layout::SectorLayout;
 use crate::render::hud::{self, ConsoleState, Hints, StatusMessage, Tone, TopHud};
-use crate::render::scene::{parent_gate_position, Scene};
+use crate::render::scene::{parent_gate_position, parent_gate_reached, Scene};
 use crate::render::Renderer;
-use crate::theme::{AUTO_ENTER_GUARD, BOOT_SECONDS, FOCUS_TOLERANCE_PX, STATUS_LIFETIME, VOID};
+use crate::theme::{
+    AUTO_ENTER_GUARD, BOOT_SECONDS, FOCUS_TOLERANCE_PX, MAX_DIRECTORY_COUNTS, STATUS_LIFETIME, VOID,
+};
 use crate::util::home_dir;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +56,9 @@ pub struct App {
     scan_worker: ScanWorker,
     scan_generation: u64,
     scanning: bool,
+    count_worker: CountWorker,
+    count_generation: u64,
+    directory_counts: HashMap<PathBuf, usize>,
     pending_nav: Option<PendingNav>,
     last_scan_ms: f32,
     total_entries: usize,
@@ -111,6 +116,9 @@ impl App {
             scan_worker: ScanWorker::spawn(),
             scan_generation: 0,
             scanning: false,
+            count_worker: CountWorker::spawn(),
+            count_generation: 0,
+            directory_counts: HashMap::new(),
             pending_nav: None,
             last_scan_ms: 0.0,
             total_entries: 0,
@@ -160,6 +168,7 @@ impl App {
             self.last_frame_ms = dt * 1000.0;
             self.time += dt;
             self.poll_scans();
+            self.poll_counts();
             self.poll_launches();
             self.update(dt);
             self.draw();
@@ -240,6 +249,16 @@ impl App {
         {
             return false;
         }
+        if let Some(parent) = self.cwd.parent() {
+            if parent_gate_reached(self.camera.position) {
+                let parent = parent.to_path_buf();
+                self.auto_enter_guard = AUTO_ENTER_GUARD;
+                self.navigate_to(parent, false);
+                self.push_status("PARENT GATE ENTRY", Tone::Command);
+                return true;
+            }
+        }
+
         let Some(entry) = self
             .layout
             .proximity_directory(&self.entries, self.camera.position)
@@ -619,6 +638,16 @@ impl App {
         }
     }
 
+    fn poll_counts(&mut self) {
+        while let Some(result) = self.count_worker.try_recv() {
+            if result.generation != self.count_generation {
+                continue;
+            }
+            self.directory_counts.extend(result.counts);
+            self.rebuild_layout();
+        }
+    }
+
     fn apply_scan(&mut self, result: ScanResult) {
         let ScanResult {
             path,
@@ -670,6 +699,8 @@ impl App {
         self.cwd = path;
         self.canonical_cwd = canonical_path.clone();
         self.entries = entries;
+        self.count_generation = self.count_generation.wrapping_add(1);
+        self.directory_counts.clear();
         self.total_entries = total_entries;
         self.visible_entries = visible_entries;
         self.hidden_filtered = hidden_filtered;
@@ -694,6 +725,7 @@ impl App {
         }
 
         self.rebuild_layout();
+        self.request_directory_counts();
 
         if navigation.is_none() {
             if let Some(previous) = previous_selected {
@@ -1062,7 +1094,27 @@ impl App {
 
     fn rebuild_layout(&mut self) {
         let indices = self.visible_indices();
-        self.layout = SectorLayout::build(&self.entries, &indices);
+        self.layout =
+            SectorLayout::build_with_counts(&self.entries, &indices, &self.directory_counts);
+    }
+
+    fn request_directory_counts(&mut self) {
+        let mut paths = Vec::new();
+        for entry in &self.entries {
+            if paths.len() >= MAX_DIRECTORY_COUNTS {
+                break;
+            }
+            if entry.is_dir_like() && !self.directory_counts.contains_key(&entry.path) {
+                paths.push(entry.path.clone());
+            }
+        }
+        if paths.is_empty() {
+            return;
+        }
+        self.count_worker.request(CountRequest {
+            paths,
+            generation: self.count_generation,
+        });
     }
 
     fn visible_indices(&self) -> Vec<usize> {

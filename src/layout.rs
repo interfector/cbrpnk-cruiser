@@ -5,13 +5,19 @@ use macroquad::prelude::{vec3, Vec3};
 
 use crate::fs::{Entry, EntryKind};
 use crate::theme::{
-    AUTO_ENTER_FACTOR, GALAXY_RADIUS_SCALE, NODE_DIR_RADIUS, NODE_EXEC_RADIUS, NODE_FILE_RADIUS,
-    NODE_LINK_RADIUS, NODE_OTHER_RADIUS,
+    AUTO_ENTER_FACTOR, GALAXY_COUNT_REFERENCE, GALAXY_RADIUS_DEFAULT, GALAXY_RADIUS_MAX,
+    GALAXY_RADIUS_MIN, NODE_DIR_RADIUS, NODE_EXEC_RADIUS, NODE_FILE_RADIUS, NODE_LINK_RADIUS,
+    NODE_OTHER_RADIUS,
 };
 use crate::util::{normalize_path, path_hash};
 
-const GOLDEN_ANGLE: f32 = 2.399_963_2;
-const RING_CAPACITY: f32 = 24.0;
+const GROUP_BANDS: [(f32, f32, f32, f32); 5] = [
+    (2.35, 1.45, 0.10, 1.70),
+    (3.55, 1.35, 0.45, 1.50),
+    (4.70, 2.20, -0.30, 2.30),
+    (6.20, 2.00, 0.70, 2.10),
+    (7.60, 1.40, 0.20, 1.90),
+];
 
 #[derive(Debug, Clone)]
 pub struct Node {
@@ -19,6 +25,7 @@ pub struct Node {
     pub entry_index: usize,
     pub position: Vec3,
     pub radius: f32,
+    pub galaxy_radius: f32,
     pub kind: EntryKind,
     pub executable: bool,
 }
@@ -27,6 +34,7 @@ pub struct Node {
 pub struct LinkArc {
     pub source: usize,
     pub target: usize,
+    pub cross_galaxy: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -38,50 +46,29 @@ pub struct SectorLayout {
 
 impl SectorLayout {
     pub fn build(entries: &[Entry], visible: &[usize]) -> Self {
+        Self::build_with_counts(entries, visible, &HashMap::new())
+    }
+
+    pub fn build_with_counts(
+        entries: &[Entry],
+        visible: &[usize],
+        child_counts: &HashMap<PathBuf, usize>,
+    ) -> Self {
         let mut nodes = Vec::with_capacity(visible.len());
         let mut index = HashMap::with_capacity(visible.len());
-        let mut group_counts = [0usize; 5];
-
-        let sector_rotation = visible
-            .first()
-            .map(|entry_index| {
-                let hash = path_hash(&entries[*entry_index].path);
-                (hash % 360) as f32 * std::f32::consts::TAU / 360.0
-            })
-            .unwrap_or(0.0);
 
         for entry_index in visible {
             let Some(entry) = entries.get(*entry_index) else {
                 continue;
             };
-            let group = group_of(entry);
-            let group_index = group_counts[group];
-            group_counts[group] += 1;
-
-            let base_radius = match group {
-                0 => 2.4,
-                1 => 3.6,
-                2 => 4.8,
-                3 => 6.0,
-                _ => 7.0,
+            let child_count = child_counts.get(&entry.path).copied();
+            let galaxy_radius = if entry.is_dir_like() {
+                directory_galaxy_radius(child_count)
+            } else {
+                0.0
             };
-            let base_height = match group {
-                0 => 0.55,
-                1 => 1.25,
-                2 => 0.0,
-                3 => 1.8,
-                _ => 0.9,
-            };
-            let ring = (group_index as f32 / RING_CAPACITY).floor();
-            let radius = base_radius + ring.sqrt() * 0.85;
-            let angle = sector_rotation + group as f32 * 0.37 + group_index as f32 * GOLDEN_ANGLE;
-            let position = vec3(
-                angle.cos() * radius,
-                base_height + ring * 0.12,
-                angle.sin() * radius,
-            );
             let radius = match entry.kind {
-                EntryKind::Directory => NODE_DIR_RADIUS,
+                EntryKind::Directory => directory_core_radius(galaxy_radius),
                 EntryKind::File if entry.executable => NODE_EXEC_RADIUS,
                 EntryKind::File => file_radius(entry.size),
                 EntryKind::Symlink => NODE_LINK_RADIUS,
@@ -91,8 +78,9 @@ impl SectorLayout {
             let node = Node {
                 path: entry.path.clone(),
                 entry_index: *entry_index,
-                position,
+                position: position_for(entry),
                 radius,
+                galaxy_radius,
                 kind: entry.kind,
                 executable: entry.executable,
             };
@@ -113,7 +101,21 @@ impl SectorLayout {
             };
             if let Some(target) = index.get(&target_path).copied() {
                 if target != source {
-                    links.push(LinkArc { source, target });
+                    links.push(LinkArc {
+                        source,
+                        target,
+                        cross_galaxy: false,
+                    });
+                }
+                continue;
+            }
+            if let Some(target) = containing_galaxy(&nodes, entries, &target_path) {
+                if target != source {
+                    links.push(LinkArc {
+                        source,
+                        target,
+                        cross_galaxy: true,
+                    });
                 }
             }
         }
@@ -176,11 +178,51 @@ impl SectorLayout {
 }
 
 pub fn galaxy_radius(node: &Node) -> f32 {
-    node.radius * GALAXY_RADIUS_SCALE
+    node.galaxy_radius
 }
 
 pub fn auto_enter_radius(node: &Node) -> f32 {
     galaxy_radius(node) * AUTO_ENTER_FACTOR
+}
+
+fn position_for(entry: &Entry) -> Vec3 {
+    let group = group_of(entry);
+    let hash = path_hash(&entry.path);
+    let (base_radius, radius_spread, base_height, height_spread) = GROUP_BANDS[group];
+    let angle = hash_unit(hash, 0) * std::f32::consts::TAU;
+    let radius = base_radius + hash_unit(hash, 17) * radius_spread;
+    let height = base_height + hash_unit(hash, 33) * height_spread;
+    vec3(angle.cos() * radius, height, angle.sin() * radius)
+}
+
+fn hash_unit(hash: u64, shift: u32) -> f32 {
+    (hash.rotate_left(shift) & 0xffff) as f32 / u16::MAX as f32
+}
+
+fn directory_galaxy_radius(child_count: Option<usize>) -> f32 {
+    let Some(count) = child_count else {
+        return GALAXY_RADIUS_DEFAULT;
+    };
+    let normalized =
+        ((1.0 + count as f32).ln() / (1.0 + GALAXY_COUNT_REFERENCE).ln()).clamp(0.0, 1.0);
+    GALAXY_RADIUS_MIN + (GALAXY_RADIUS_MAX - GALAXY_RADIUS_MIN) * normalized
+}
+
+fn directory_core_radius(galaxy: f32) -> f32 {
+    (NODE_DIR_RADIUS + (galaxy - GALAXY_RADIUS_DEFAULT) * 0.12).clamp(NODE_DIR_RADIUS, 0.45)
+}
+
+fn containing_galaxy(nodes: &[Node], entries: &[Entry], target_path: &Path) -> Option<usize> {
+    nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| {
+            entries
+                .get(node.entry_index)
+                .is_some_and(|entry| entry.is_dir_like() && target_path.starts_with(&node.path))
+        })
+        .max_by_key(|(_, node)| node.path.components().count())
+        .map(|(index, _)| index)
 }
 
 fn link_target_path(entry: &Entry) -> Option<PathBuf> {
@@ -295,9 +337,43 @@ mod tests {
             layout.links,
             vec![LinkArc {
                 source: 3,
-                target: 2
+                target: 2,
+                cross_galaxy: false,
             }]
         );
+    }
+
+    #[test]
+    fn links_connect_nested_targets_to_their_galaxy() {
+        let mut entries = sample();
+        entries[0].path = PathBuf::from("/sector/alpha");
+        entries[0].name = OsString::from("alpha");
+        entries[3].path = PathBuf::from("/sector/link");
+        entries[3].link_target = Some(PathBuf::from("alpha/nested/data.txt"));
+        let layout = SectorLayout::build(&entries, &[0, 1, 2, 3, 4]);
+        assert_eq!(
+            layout.links,
+            vec![LinkArc {
+                source: 3,
+                target: 0,
+                cross_galaxy: true,
+            }]
+        );
+    }
+
+    #[test]
+    fn links_prefer_the_deepest_visible_galaxy() {
+        let mut entries = sample();
+        entries[0].path = PathBuf::from("/sector/alpha");
+        entries[1].kind = EntryKind::Directory;
+        entries[1].path = PathBuf::from("/sector/alpha/beta");
+        entries[3].path = PathBuf::from("/sector/link");
+        entries[3].link_target = Some(PathBuf::from("alpha/beta/data.txt"));
+        let layout = SectorLayout::build(&entries, &[0, 1, 2, 3, 4]);
+        assert_eq!(layout.links.len(), 1);
+        assert_eq!(layout.links[0].source, 3);
+        assert_eq!(layout.links[0].target, 1);
+        assert!(layout.links[0].cross_galaxy);
     }
 
     #[test]
@@ -336,6 +412,39 @@ mod tests {
         let directory = &layout.nodes[0];
         assert!(galaxy_radius(directory) > directory.radius);
         assert!(auto_enter_radius(directory) < galaxy_radius(directory));
+    }
+
+    #[test]
+    fn galaxy_radius_grows_with_child_count_and_stays_bounded() {
+        let entries = sample();
+        let mut counts = HashMap::new();
+        counts.insert(PathBuf::from("dir"), 0);
+        let empty = SectorLayout::build_with_counts(&entries, &[0], &counts);
+        counts.insert(PathBuf::from("dir"), 500);
+        let full = SectorLayout::build_with_counts(&entries, &[0], &counts);
+        counts.insert(PathBuf::from("dir"), usize::MAX);
+        let huge = SectorLayout::build_with_counts(&entries, &[0], &counts);
+
+        assert!(empty.nodes[0].galaxy_radius < full.nodes[0].galaxy_radius);
+        assert!(huge.nodes[0].galaxy_radius <= GALAXY_RADIUS_MAX);
+        assert!(empty.nodes[0].galaxy_radius >= GALAXY_RADIUS_MIN);
+        assert!(full.nodes[0].radius > empty.nodes[0].radius);
+    }
+
+    #[test]
+    fn positions_are_path_keyed_and_stable_when_entries_are_added() {
+        let entries = sample();
+        let first = SectorLayout::build(&entries, &[0, 1, 2]);
+        let all = SectorLayout::build(&entries, &[0, 1, 2, 3, 4]);
+        for path in [
+            PathBuf::from("dir"),
+            PathBuf::from("run"),
+            PathBuf::from("data"),
+        ] {
+            let before = first.node_for(&path).unwrap().position;
+            let after = all.node_for(&path).unwrap().position;
+            assert_eq!(before, after);
+        }
     }
 
     #[test]

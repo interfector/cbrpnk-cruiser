@@ -11,7 +11,7 @@ use crate::layout::{galaxy_radius, Node, SectorLayout};
 use crate::render::text::{Align, Fonts};
 use crate::theme::{
     alpha, AMBER, CYAN, CYAN_DIM, FONT_SMALL, FONT_TINY, GALAXY_ORBIT_SEGMENTS, GRID_DIM, ICE,
-    MAGENTA, MAX_GALAXIES, MAX_VISIBLE_LABELS, TEXT_MUTED,
+    MAGENTA, MAX_GALAXIES, MAX_VISIBLE_LABELS, PARENT_GATE_ENTRY_RADIUS, TEXT_MUTED,
 };
 use crate::util::path_hash;
 
@@ -41,6 +41,10 @@ struct Label {
 
 pub fn parent_gate_position() -> Vec3 {
     macroquad::prelude::vec3(0.0, 4.3, 4.6)
+}
+
+pub fn parent_gate_reached(position: Vec3) -> bool {
+    position.distance(parent_gate_position()) <= PARENT_GATE_ENTRY_RADIUS
 }
 
 impl Scene<'_> {
@@ -171,7 +175,13 @@ impl Scene<'_> {
             let highlighted = self
                 .selected
                 .is_some_and(|path| path == source.path || path == target.path);
-            let base_alpha = if highlighted { 0.7 } else { 0.24 };
+            let base_alpha = if highlighted {
+                0.7
+            } else if link.cross_galaxy {
+                0.2
+            } else {
+                0.24
+            };
             let mut previous: Option<Projected> = None;
             for step in 0..=28 {
                 let t = step as f32 / 28.0;
@@ -621,5 +631,22 @@ fn node_color(node: &Node, selected: bool, fade: f32) -> Color {
         alpha(ICE, 1.0)
     } else {
         alpha(base, 0.38 + 0.62 * fade)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parent_gate_detects_only_nearby_camera_positions() {
+        let gate = parent_gate_position();
+        assert!(parent_gate_reached(gate));
+        assert!(parent_gate_reached(
+            gate + macroquad::prelude::vec3(PARENT_GATE_ENTRY_RADIUS * 0.9, 0.0, 0.0)
+        ));
+        assert!(!parent_gate_reached(
+            gate + macroquad::prelude::vec3(PARENT_GATE_ENTRY_RADIUS * 1.1, 0.0, 0.0)
+        ));
     }
 }

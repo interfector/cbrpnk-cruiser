@@ -143,7 +143,9 @@ signal.
 - **Executable / program**: a diamond or chevron core, amber.
 - **Regular file / data**: a square shard, cyan-white; size controls scale.
 - **Symlink / portal**: an arc or wormhole curve, magenta; when the resolved
-  target is another visible node in the sector, draw a curved arc to it.
+  target is another visible node in the sector, draw a curved arc to it. If the
+  target is nested inside a visible directory instead, draw a continuous
+  cross-galaxy arc to that directory's galaxy.
 - **Special file / unknown**: a broken ring or question glyph, muted.
 - **Locked selection**: four corner brackets plus a rotating outer ring.
 - **Reticle**: a small identity-disc-like double arc with a center dot.
@@ -260,8 +262,9 @@ center. The pointer only steers while it is inside the window. Do not capture
 or hide the OS pointer by default.
 
 In unlocked Cruise, flying inside a readable directory's galaxy radius enters
-that sector automatically. Lock mode and filters disable proximity entry so
-inspection cannot trigger navigation; use `Enter` while locked.
+that sector automatically. Flying into the parent gate returns to the parent
+directory. Lock mode and filters disable proximity entry so inspection cannot
+trigger navigation; use `Enter` while locked.
 
 ### 4.3 Focus and selection
 
@@ -402,6 +405,7 @@ src/
     mod.rs          # public API
     entry.rs        # Entry, EntryKind, metadata
     scan.rs         # background directory scanner
+    count.rs        # background child-count worker for galaxy sizing
   layout.rs         # deterministic node placement
   camera.rs         # camera, projection helpers, transitions
   input.rs          # key/mouse -> Intent mapping
@@ -493,6 +497,10 @@ Do not use array indices as identity across rescans.
   watchers are optional post-v1; if added, debounce them.
 - Scanning runs on a worker thread. Use a generation token so stale results
   are discarded. The UI must not wait for a scan.
+- Galaxy sizing counts immediate child entries on a separate worker. Request
+  counts only for directories in the current sector, cap the number of
+  counted directories per scan, and discard stale generation results. A count
+  failure is treated as zero children and never blocks navigation.
 
 ### 5.5 Spatial layout
 
@@ -500,21 +508,24 @@ Do not use array indices as identity across rescans.
 
 - Input: a listing plus theme/layout constants.
 - Output: a position, scale, and visual kind for each entry, using `glam`.
-- Sort/group first, then place. Directories on an inner ring, executables on
-  a middle ring, files and links outward. A flattened torus or golden-angle
-  spiral works well; keep groups visually distinct.
-- Directory nodes render as small galaxies; orbit detail is bounded per frame.
-  Resolve symlink targets lexically against the sector and emit link arcs only
-  when both endpoints are visible nodes.
+- Sort/group first, then place. Directories stay in an inner shell,
+  executables in a middle shell, then files and links outward. Keep groups
+  visually distinct without pinning every entry to the same fixed orbit.
+- Derive each node's angle, radial offset, and height from a stable path hash.
+  Positions must be path-keyed: adding or removing another entry must not move
+  an unchanged node. No per-frame randomness or jitter.
+- Directory nodes render as small galaxies whose orbit size grows with the
+  immediate child count, clamped between theme minimum and maximum sizes.
+  Missing counts use a neutral default. Orbit detail is bounded per frame.
+- Resolve symlink targets lexically against the sector. Emit an arc to a
+  visible target node when possible; otherwise resolve the deepest visible
+  directory that contains the target and emit a cross-galaxy arc to it.
 - Radius from size: use a cube-root or log scale with hard clamps. Do not
   let one huge file dominate the sector.
-- Preserve positions for an unchanged listing. When entries change, prefer
-  path-keyed stable slots over index-based placement so most nodes stay put.
-  Implement a stable FNV-1a hash locally if a hash is needed; do not depend
-  on `std::collections::hash_map::DefaultHasher` for cross-version stability.
-- No random jitter. No per-frame layout changes.
-- Add tests for determinism, bounds, group separation, empty directories,
-  and pathological names.
+- Implement a stable FNV-1a hash locally; do not depend on
+  `std::collections::hash_map::DefaultHasher` for cross-version stability.
+- Add tests for determinism, bounds, path-keyed stability, galaxy size
+  clamping, link resolution, empty directories, and pathological names.
 
 ### 5.6 Camera and navigation
 
@@ -528,9 +539,10 @@ Do not use array indices as identity across rescans.
 - Left and right mouse buttons thrust forward and reverse. Button and pointer
   input is ignored while the pointer is outside the window.
 - Unlocked Cruise automatically enters a readable directory when the camera
-  crosses its galaxy entry radius. Apply a short post-navigation guard,
-  recenter on arrival, and never auto-enter while locked, frozen, filtering,
-  scanning, or holding a pending navigation.
+  crosses its galaxy entry radius, and returns to the parent when the camera
+  reaches the parent gate. Apply a short post-navigation guard, recenter on
+  arrival, and never auto-enter while locked, frozen, filtering, scanning, or
+  holding a pending navigation.
 - Damping and acceleration prevent twitchy motion. Cap velocity in the
   sector and across sector transitions.
 - `R` recenters; `F` freezes. Do not add camera shake by default.
@@ -723,7 +735,8 @@ checks green.
 
 ### M2 - Spatial world
 
-- Deterministic layout for directories, files, executables, links.
+- Deterministic path-hashed layout for directories, files, executables, links.
+- Child-count-based galaxy sizing and direct/cross-galaxy link arcs.
 - Camera, projection, rings, node glyphs, labels, depth sorting.
 - Cruise navigation with damping and freeze.
 - Acceptance: a real directory renders with correct entry count; layout is

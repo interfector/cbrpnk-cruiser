@@ -41,11 +41,16 @@ pub const NODE_FILE_RADIUS: f32 = 0.17;
 pub const NODE_LINK_RADIUS: f32 = 0.22;
 pub const NODE_OTHER_RADIUS: f32 = 0.15;
 
-pub const GALAXY_RADIUS_SCALE: f32 = 3.9;
+pub const GALAXY_RADIUS_MIN: f32 = 0.75;
+pub const GALAXY_RADIUS_DEFAULT: f32 = 1.0;
+pub const GALAXY_RADIUS_MAX: f32 = 2.15;
+pub const GALAXY_COUNT_REFERENCE: f32 = 512.0;
 pub const GALAXY_ORBIT_SEGMENTS: usize = 40;
 pub const MAX_GALAXIES: usize = 96;
+pub const MAX_DIRECTORY_COUNTS: usize = 128;
 pub const AUTO_ENTER_FACTOR: f32 = 0.78;
 pub const AUTO_ENTER_GUARD: f32 = 1.25;
+pub const PARENT_GATE_ENTRY_RADIUS: f32 = 1.1;
 
 pub const FOV_Y: f32 = 64.0_f32.to_radians();
 pub const NEAR_PLANE: f32 = 0.18;

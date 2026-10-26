@@ -43,6 +43,14 @@ cargo test
 cargo build --release
 ```
 
+## The sector
+
+Real directories become galaxies, sized by their immediate child count.
+Positions are derived from each entry's path, so the world is stable between
+frames and rescans but does not force everything onto one fixed orbit.
+Symlinks curve continuously toward their targets; links into a sibling
+directory's contents arc to that galaxy.
+
 ## Controls
 
 Keyboard is primary. Steering is joystick-style: mouse motion arms pointer
@@ -83,8 +91,9 @@ The `PARENT` gate above the sector is selectable when the current directory
 has a parent. It is not shown at `/`.
 
 Unlocked Cruise automatically enters a readable directory when you fly inside
-its galaxy. Lock mode, freeze, filters, and open scans disable proximity entry;
-use `Enter` while locked.
+its galaxy, and returns to the parent when you fly into the `PARENT` gate. Lock
+mode, freeze, filters, and open scans disable proximity entry; use `Enter`
+while locked.
 
 ## Console
 
