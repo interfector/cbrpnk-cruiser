@@ -69,7 +69,8 @@ anything.
 | `Shift` | Boost |
 | `Ctrl` | Brake |
 | `J` / `K` | Previous / next node |
-| `Tab` | Toggle Lock mode |
+| `Tab` | Toggle Lock mode; complete input in Console |
+| `Ctrl+Up` / `Ctrl+Down` | Adjust Console height |
 | `Enter` | Enter directory, launch executable, open file, or enter `PARENT` |
 | `Backspace` or `H` | Parent directory |
 | `Home` or `~` | Home directory |
@@ -121,7 +122,7 @@ A leading `!` explicitly opts into shell execution:
 Output from console commands is captured and shown in the console. Interactive
 programs should be run with `term`. `Tab` completes built-ins and the first
 path argument of `cd`, `ls`, `open`, `run`, and `term`; multiple matches are
-listed in the console.
+listed in the console. Use `Ctrl+Up` and `Ctrl+Down` to resize the console.
 
 ## Configuration
 
@@ -133,6 +134,9 @@ to safe defaults with a warning.
 start_path = "/home/you"
 show_hidden = false
 max_entries = 5000
+console_lines = 12       # initial Console height
+console_min_lines = 4    # Ctrl+Down lower bound
+console_max_lines = 24   # Ctrl+Up upper bound, raise for a taller Console
 font_scale = 1.0
 crt = true
 reduced_motion = false

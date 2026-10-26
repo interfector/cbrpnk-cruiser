@@ -24,7 +24,8 @@ use crate::render::hud::{self, ConsoleState, Hints, StatusMessage, Tone, TopHud}
 use crate::render::scene::{parent_gate_position, parent_gate_reached, Scene};
 use crate::render::Renderer;
 use crate::theme::{
-    AUTO_ENTER_GUARD, BOOT_SECONDS, FOCUS_TOLERANCE_PX, MAX_DIRECTORY_COUNTS, STATUS_LIFETIME, VOID,
+    AUTO_ENTER_GUARD, BOOT_SECONDS, CONSOLE_RESIZE_STEP, FOCUS_TOLERANCE_PX, MAX_DIRECTORY_COUNTS,
+    STATUS_LIFETIME, VOID,
 };
 use crate::util::home_dir;
 
@@ -105,6 +106,11 @@ impl App {
         }
         let start = initial_path(&cli, &config, &mut warnings);
         let show_hidden = cli.hidden || config.show_hidden;
+        let console = ConsoleState::configured(
+            config.console_lines,
+            config.console_min_lines,
+            config.console_max_lines,
+        );
         let host = read_host();
 
         let mut app = Self {
@@ -141,7 +147,7 @@ impl App {
             show_debug: false,
             fullscreen: false,
             quit: false,
-            console: ConsoleState::default(),
+            console,
             history: Vec::new(),
             history_index: 0,
             launch_worker: LaunchWorker::spawn(),
@@ -398,6 +404,14 @@ impl App {
             self.console.input.pop();
             return;
         }
+        if input::ctrl_down() && is_key_pressed(KeyCode::Up) {
+            self.console.resize(CONSOLE_RESIZE_STEP as i32);
+            return;
+        }
+        if input::ctrl_down() && is_key_pressed(KeyCode::Down) {
+            self.console.resize(-(CONSOLE_RESIZE_STEP as i32));
+            return;
+        }
         if is_key_pressed(KeyCode::Up) {
             self.recall_history(-1);
             return;
@@ -562,6 +576,10 @@ impl App {
             "shell:     !<command> runs through $SHELL -lc, explicitly",
             "keys:      Up/Down history, PageUp/PageDown scroll, Esc close",
             "           Tab completes built-ins and paths",
+            &format!(
+                "           Ctrl+Up/Down resizes ({}-{} lines)",
+                self.config.console_min_lines, self.config.console_max_lines
+            ),
         ] {
             self.console.push(line, Tone::Muted);
         }

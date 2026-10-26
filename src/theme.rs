@@ -64,6 +64,11 @@ pub const SCANLINE_ALPHA: f32 = 0.05;
 
 pub const BOOT_SECONDS: f32 = 1.15;
 pub const CONSOLE_LINES: usize = 12;
+pub const CONSOLE_MIN_LINES: usize = 4;
+pub const CONSOLE_MAX_LINES: usize = 24;
+pub const CONSOLE_RESIZE_STEP: usize = 2;
+pub const CONSOLE_LINE_HEIGHT: f32 = 18.0;
+pub const CONSOLE_TOP_RESERVE: f32 = 48.0;
 pub const CONSOLE_BUFFER: usize = 300;
 pub const STATUS_LIFETIME: f32 = 7.0;
 

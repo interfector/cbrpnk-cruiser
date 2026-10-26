@@ -3,12 +3,20 @@ use std::path::{Path, PathBuf};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
+use crate::theme::{CONSOLE_LINES, CONSOLE_MAX_LINES, CONSOLE_MIN_LINES};
+
+const CONSOLE_HARD_MIN: usize = 2;
+const CONSOLE_HARD_MAX: usize = 64;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
     pub start_path: Option<PathBuf>,
     pub show_hidden: bool,
     pub max_entries: usize,
+    pub console_lines: usize,
+    pub console_min_lines: usize,
+    pub console_max_lines: usize,
     pub font_scale: f32,
     pub crt: bool,
     pub reduced_motion: bool,
@@ -25,6 +33,9 @@ impl Default for Config {
             start_path: None,
             show_hidden: false,
             max_entries: 5_000,
+            console_lines: CONSOLE_LINES,
+            console_min_lines: CONSOLE_MIN_LINES,
+            console_max_lines: CONSOLE_MAX_LINES,
             font_scale: 1.0,
             crt: true,
             reduced_motion: false,
@@ -116,6 +127,43 @@ pub fn validate(mut config: Config) -> (Config, Option<String>) {
         warnings.push(format!("unknown theme {:?}, using default", config.theme));
         config.theme = "default".to_string();
     }
+    let console_min = config
+        .console_min_lines
+        .clamp(CONSOLE_HARD_MIN, CONSOLE_HARD_MAX);
+    if console_min != config.console_min_lines {
+        warnings.push(format!(
+            "console_min_lines {} clamped to {console_min}",
+            config.console_min_lines
+        ));
+        config.console_min_lines = console_min;
+    }
+    let console_max = config
+        .console_max_lines
+        .clamp(CONSOLE_HARD_MIN, CONSOLE_HARD_MAX);
+    if console_max != config.console_max_lines {
+        warnings.push(format!(
+            "console_max_lines {} clamped to {console_max}",
+            config.console_max_lines
+        ));
+        config.console_max_lines = console_max;
+    }
+    if config.console_min_lines > config.console_max_lines {
+        warnings.push(format!(
+            "console_min_lines {} exceeds console_max_lines {}; using {} for both",
+            config.console_min_lines, config.console_max_lines, config.console_min_lines
+        ));
+        config.console_max_lines = config.console_min_lines;
+    }
+    let console_lines = config
+        .console_lines
+        .clamp(config.console_min_lines, config.console_max_lines);
+    if console_lines != config.console_lines {
+        warnings.push(format!(
+            "console_lines {} clamped to {console_lines}",
+            config.console_lines
+        ));
+        config.console_lines = console_lines;
+    }
     let warning = if warnings.is_empty() {
         None
     } else {
@@ -146,6 +194,51 @@ mod tests {
         assert!(loaded.config.show_hidden);
         assert_eq!(loaded.config.max_entries, 42);
         assert!(loaded.warning.is_none());
+    }
+
+    #[test]
+    fn configures_console_height() {
+        let config = Config {
+            console_lines: 40,
+            console_min_lines: 6,
+            console_max_lines: 48,
+            ..Config::default()
+        };
+        let (config, warning) = validate(config);
+        assert_eq!(config.console_lines, 40);
+        assert_eq!(config.console_min_lines, 6);
+        assert_eq!(config.console_max_lines, 48);
+        assert!(warning.is_none());
+    }
+
+    #[test]
+    fn clamps_bad_console_values() {
+        let config = Config {
+            console_lines: 500,
+            console_min_lines: 0,
+            console_max_lines: 500,
+            ..Config::default()
+        };
+        let (config, warning) = validate(config);
+        assert_eq!(config.console_min_lines, 2);
+        assert_eq!(config.console_max_lines, 64);
+        assert_eq!(config.console_lines, 64);
+        assert!(warning.is_some());
+    }
+
+    #[test]
+    fn repairs_inverted_console_bounds() {
+        let config = Config {
+            console_lines: 12,
+            console_min_lines: 30,
+            console_max_lines: 20,
+            ..Config::default()
+        };
+        let (config, warning) = validate(config);
+        assert_eq!(config.console_min_lines, 30);
+        assert_eq!(config.console_max_lines, 30);
+        assert_eq!(config.console_lines, 30);
+        assert!(warning.is_some());
     }
 
     #[test]

@@ -241,6 +241,7 @@ codes so non-US keyboard layouts work.
 | Mouse position | Steer relative to center in Cruise (joystick style) |
 | Mouse wheel | Adjust cruise speed, not camera FOV |
 | `Tab` | Toggle Lock mode / cycle focus; completes input in Console |
+| `Ctrl+Up` / `Ctrl+Down` | Increase / decrease Console height |
 | `J` / `K` | Previous / next node in the current sector |
 | `Enter` | Context action: enter directory, launch executable, open file |
 | `Backspace` or `H` | Go to parent directory |
@@ -343,6 +344,9 @@ Rules:
   suggest `open` or `term`.
 - `.desktop` files are handed to `xdg-open`/`gio open` in v1. Do not parse
   or execute their `Exec=` fields manually.
+- Console height is adjustable with `Ctrl+Up` and `Ctrl+Down`, clamped between
+  configurable `console_min_lines` and `console_max_lines`. `console_lines`
+  sets the starting height.
 - Keep history in memory for the session. Up/Down recalls. Tab completes
   built-ins and filesystem paths, not arbitrary shell aliases. Complete the
   first argument of `cd`, `ls`, `open`, `run`, and `term`; use directory-only
@@ -606,8 +610,9 @@ matters, but do not contort the design prematurely. Embedded shaders via
 - Missing config is fine. Invalid config produces a warning and safe defaults,
   not a crash.
 - Suggested settings: `start_path`, `show_hidden`, `max_entries`,
-  `font_scale`, `crt`, `reduced_motion`, `terminal`, `shell`,
-  `confirm_exec` (default false), `theme`, and log level.
+  `console_lines`, `console_min_lines`, `console_max_lines`, `font_scale`,
+  `crt`, `reduced_motion`, `terminal`, `shell`, `confirm_exec` (default false),
+  `theme`, and log level.
 - Keep all user-visible defaults documented in `README.md` and in `--help`.
 - Do not write the config file unless the user explicitly saves settings.
 - CLI: `cbrpnk-cruiser [PATH]`, `--no-crt`, `--hidden`, `--config <path>`,

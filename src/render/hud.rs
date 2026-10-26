@@ -7,7 +7,8 @@ use macroquad::prelude::{
 use crate::fs::Entry;
 use crate::render::text::{Align, Fonts};
 use crate::theme::{
-    alpha, AMBER, CONSOLE_BUFFER, CONSOLE_LINES, CYAN, CYAN_DIM, DEEP_PANEL, FAULT, FONT_BODY,
+    alpha, AMBER, CONSOLE_BUFFER, CONSOLE_LINES, CONSOLE_LINE_HEIGHT, CONSOLE_MAX_LINES,
+    CONSOLE_MIN_LINES, CONSOLE_TOP_RESERVE, CYAN, CYAN_DIM, DEEP_PANEL, FAULT, FONT_BODY,
     FONT_SMALL, FONT_TINY, FONT_TITLE, GREEN, HUD_GAP, ICE, MAGENTA, PAD, PANEL_ALPHA, TEXT_MUTED,
     VOID,
 };
@@ -34,6 +35,9 @@ pub struct ConsoleState {
     pub input: String,
     pub lines: Vec<ConsoleLine>,
     pub scroll: usize,
+    pub visible_lines: usize,
+    pub min_lines: usize,
+    pub max_lines: usize,
 }
 
 impl Default for ConsoleState {
@@ -52,11 +56,25 @@ impl Default for ConsoleState {
                 },
             ],
             scroll: 0,
+            visible_lines: CONSOLE_LINES,
+            min_lines: CONSOLE_MIN_LINES,
+            max_lines: CONSOLE_MAX_LINES,
         }
     }
 }
 
 impl ConsoleState {
+    pub fn configured(visible_lines: usize, min_lines: usize, max_lines: usize) -> Self {
+        let min_lines = min_lines.max(1);
+        let max_lines = max_lines.max(min_lines);
+        Self {
+            visible_lines: visible_lines.clamp(min_lines, max_lines),
+            min_lines,
+            max_lines,
+            ..Self::default()
+        }
+    }
+
     pub fn push(&mut self, text: impl Into<String>, tone: Tone) {
         self.lines.push(ConsoleLine {
             text: text.into(),
@@ -76,6 +94,11 @@ impl ConsoleState {
 
     pub fn scroll_down(&mut self, amount: usize) {
         self.scroll = self.scroll.saturating_sub(amount);
+    }
+
+    pub fn resize(&mut self, delta: i32) {
+        let next = self.visible_lines as i32 + delta;
+        self.visible_lines = next.clamp(self.min_lines as i32, self.max_lines as i32) as usize;
     }
 }
 
@@ -517,19 +540,29 @@ pub fn draw_hints(fonts: &Fonts, hints: &Hints, time: f32) {
     }
 }
 
+fn fit_console_lines(requested: usize, screen_height: f32) -> usize {
+    let available = (screen_height - PAD * 2.0 - CONSOLE_TOP_RESERVE).max(0.0);
+    let max_lines = (((available - 24.0) / CONSOLE_LINE_HEIGHT).floor() as i32 - 2).max(1);
+    requested.min(max_lines as usize)
+}
+
 pub fn draw_console(fonts: &Fonts, console: &ConsoleState, time: f32) {
     if !console.visible {
         return;
     }
-    let line_height = 18.0;
-    let height = (CONSOLE_LINES + 2) as f32 * line_height + 24.0;
+    let line_height = CONSOLE_LINE_HEIGHT;
+    let shown_lines = fit_console_lines(console.visible_lines, screen_height());
+    let height = (shown_lines + 2) as f32 * line_height + 24.0;
     let width = screen_width() - PAD * 2.0;
     let x = PAD;
     let y = screen_height() - height - PAD;
     draw_rectangle(x, y, width, height, alpha(DEEP_PANEL, 0.97));
     draw_rectangle_lines(x, y, width, height, 1.0, alpha(CYAN, 0.7));
     fonts.draw(
-        "CONSOLE  //  ENTER RUN  ·  ESC CLOSE  ·  ! EXPLICIT SHELL",
+        &format!(
+            "CONSOLE  //  {}L  ·  ENTER RUN  ·  ESC CLOSE  ·  CTRL+UP/DOWN HEIGHT  ·  ! SHELL",
+            shown_lines
+        ),
         x + 12.0,
         y + 5.0,
         FONT_TINY,
@@ -539,7 +572,7 @@ pub fn draw_console(fonts: &Fonts, console: &ConsoleState, time: f32) {
     );
     let content_top = y + 24.0;
     let end = console.lines.len().saturating_sub(console.scroll);
-    let start = end.saturating_sub(CONSOLE_LINES);
+    let start = end.saturating_sub(shown_lines);
     let mut line_y = content_top;
     for line in &console.lines[start..end] {
         fonts.draw_elided(
@@ -650,6 +683,7 @@ pub fn draw_help(fonts: &Fonts) {
                 "reload          rescan sector",
                 "home / root     jump",
                 "Tab             complete built-ins/paths",
+                "Ctrl+Up/Down    resize console",
                 "!<command>      explicit shell mode",
                 "quit            exit application",
             ],
@@ -872,4 +906,38 @@ pub fn elided_path(path: &Path, max: usize) -> String {
 
 pub fn gap() -> f32 {
     HUD_GAP
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn console_height_resizes_and_clamps() {
+        let mut console = ConsoleState::default();
+        assert_eq!(console.visible_lines, CONSOLE_LINES);
+        console.resize(2);
+        assert_eq!(console.visible_lines, CONSOLE_LINES + 2);
+        console.resize(1000);
+        assert_eq!(console.visible_lines, CONSOLE_MAX_LINES);
+        console.resize(-1000);
+        assert_eq!(console.visible_lines, CONSOLE_MIN_LINES);
+    }
+
+    #[test]
+    fn configured_console_bounds_are_respected() {
+        let mut console = ConsoleState::configured(40, 6, 48);
+        assert_eq!(console.visible_lines, 40);
+        console.resize(1000);
+        assert_eq!(console.visible_lines, 48);
+        console.resize(-1000);
+        assert_eq!(console.visible_lines, 6);
+    }
+
+    #[test]
+    fn console_height_fits_the_window() {
+        assert_eq!(fit_console_lines(12, 800.0), 12);
+        assert_eq!(fit_console_lines(48, 800.0), 36);
+        assert!(fit_console_lines(1000, 300.0) >= 1);
+    }
 }
