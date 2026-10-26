@@ -91,7 +91,10 @@ directory's contents arc to that galaxy.
 
 Keyboard is primary. Steering is joystick-style: mouse motion arms pointer
 steering, and the reticle at screen center drives focus. Clicks never launch
-anything.
+anything. By default `auto_hide_mouse = true` hides the pointer while you
+cruise; mouse movement, steering, and clicks still work. The pointer reappears
+while an in-app terminal window has focus. Set `auto_hide_mouse = false` to
+show it at all times.
 
 | Input | Action |
 | --- | --- |
@@ -119,7 +122,6 @@ anything.
 | `Home` or `~` | Home directory |
 | `/` | Filter the current sector |
 | `:` | Command console |
-| `T` | Terminal at the current or selected directory |
 | `O` | Open with the system handler |
 | `R` | Recenter camera |
 | `F` | Freeze motion |
@@ -182,6 +184,10 @@ console_lines = 12       # initial Console height
 console_min_lines = 4    # Ctrl+Down lower bound
 console_max_lines = 24   # Ctrl+Up upper bound, raise for a taller Console
 font_scale = 1.0
+unfocused_opacity = 0.70 # unfocused terminal window opacity (0.0-1.0)
+auto_hide_mouse = true   # hide pointer except when a terminal is focused
+open_with_system = true  # false masks O and Enter's system-open action
+enter_shell = false      # true makes Enter open an in-app shell
 crt = true
 reduced_motion = false
 terminal = "foot"      # optional terminal override
@@ -190,7 +196,14 @@ theme = "default"
 log_level = "info"
 ```
 
-`--no-crt` overrides `crt = true`.
+`--no-crt` overrides `crt = true`. The hyphenated
+`auto-hide-mouse = true` spelling is also accepted. `unfocused_opacity`
+applies to unfocused in-app terminal windows and their text.
+
+Set `open_with_system = false` to mask `O` and Enter's system-open action for
+regular files. Set `enter_shell = true` to make Enter open an in-app shell
+instead: directories open there, while files and executables open a shell in
+their containing directory. The explicit `open` console command is unchanged.
 
 ## Safety and comfort
 
@@ -199,7 +212,8 @@ log_level = "info"
 - `run` requires the executable bit and reports the OS error on failure.
 - Console commands capture stdout/stderr up to 64 KiB.
 - In-app terminal windows run real PTY children; closing a window kills the
-  child. Terminal focus always has an explicit `F12` escape.
+  child. Terminal focus always has an explicit `F12` escape. Unfocused
+  terminal windows fade to the configured `unfocused_opacity`.
 - `--no-crt` and `reduced_motion` disable post-processing and reduce motion.
 - This interface has continuous camera movement. Stop if you feel discomfort.
 

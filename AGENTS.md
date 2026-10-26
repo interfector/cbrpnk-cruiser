@@ -58,8 +58,8 @@ world.
 5. `Enter` enters a directory, launches an executable, or opens a regular
    file with the system handler.
 6. `:` opens a command console for quick built-ins and program launches.
-7. `T` opens an external terminal; `Ctrl+T` opens a real PTY shell in an
-   in-app window.
+7. `Ctrl+T` opens a real PTY shell in an in-app window; the console `term`
+   command launches an external terminal.
 8. The user can go back to the parent, jump home, filter, rescan, or quit.
 
 ### 2.3 Success criteria
@@ -257,7 +257,6 @@ codes so non-US keyboard layouts work.
 | `~` or `Home` | Go to `$HOME` |
 | `/` | Filter the current sector incrementally |
 | `:` | Open the command console |
-| `T` | Open a terminal at the current directory |
 | `O` | Open the selected entry with the system handler |
 | `R` | Recenter the ship on the sector axis |
 | `F` | Freeze / unfreeze motion |
@@ -270,10 +269,14 @@ codes so non-US keyboard layouts work.
 
 Mouse clicks never launch anything. Steering is pointer-driven: mouse motion
 arms the joystick-style pointer, and focus follows the reticle at screen
-center. The pointer only steers while it is inside the window. Do not capture
-or hide the OS pointer by default. Clicking a terminal window focuses it;
-dragging its title moves it, dragging the lower-right corner resizes it, and
-clicking `X` closes it and terminates the child process.
+center. The pointer only steers while it is inside the window. When the config
+option `auto_hide_mouse` is true (the default), the pointer is hidden while
+cruising; it still steers and clicks, and is never captured. The pointer
+reappears whenever an in-app terminal window has focus, and hides again when
+focus is released. Set it to false to keep the pointer visible at all times.
+Clicking a terminal window focuses it; dragging its title moves it, dragging
+the lower-right corner resizes it, and clicking `X` closes it and terminates
+the child process.
 
 While a terminal window has focus, every key except the reserved focus/layout
 and scrollback chords (`F6`, `F7`, `F12`, `Shift+F12`, `Shift+PageUp`,
@@ -322,10 +325,15 @@ focused PTY. Releasing focus restores cruiser shortcuts immediately.
 | Broken symlink | Show a fault, keep the entry visible |
 
 `O` always asks the system handler to open the path, regardless of executable
-bit. `T` opens an external terminal at the current directory (or at a selected
-directory's path). `Ctrl+Enter` opens an in-app PTY window: an executable runs
-directly in it, a directory opens a shell there, and other entries are
-refused. `Enter` must never pass untrusted filenames through a shell.
+bit, unless `open_with_system` is false. The console `term` command opens an
+external terminal at the current directory (or at a selected directory's
+path). `Ctrl+Enter` opens an in-app PTY window: an executable runs directly in
+it, a directory opens a shell there, and other entries are refused. When
+`enter_shell` is true, `Enter` instead opens an in-app shell at the selected
+directory, or in the containing directory for files and executables.
+`open_with_system = false` masks `O` and Enter's system-open action for regular
+files, but leaves directory entry and executable launch unchanged. `Enter`
+must never pass untrusted filenames through a shell.
 
 ### 4.5 Command console
 
@@ -580,8 +588,10 @@ Do not use array indices as identity across rescans.
   and far clipped so rings do not vanish through the camera.
 - Cruise uses pointer-relative steering (joystick style) plus arrow keys.
   Mouse motion or a thrust click arms the pointer; an off-center pointer
-  continues to steer until it returns to center. Do not capture or hide the
-  OS mouse unless the user explicitly enables a mouse-look option.
+  continues to steer until it returns to center. The `auto_hide_mouse` config
+  hides the pointer by default; it still steers and clicks and is never
+  captured. The pointer reappears while a terminal window has focus and hides
+  again when focus is released. Set it to false to show it at all times.
 - Left and right mouse buttons thrust forward and reverse. Button and pointer
   input is ignored while the pointer is outside the window.
 - Unlocked Cruise automatically enters a readable directory when the camera
@@ -656,8 +666,14 @@ matters, but do not contort the design prematurely. Embedded shaders via
   not a crash.
 - Suggested settings: `start_path`, `show_hidden`, `max_entries`,
   `console_lines`, `console_min_lines`, `console_max_lines`, `font_scale`,
-  `crt`, `reduced_motion`, `terminal`, `shell`, `confirm_exec` (default false),
-  `theme`, and log level.
+  `unfocused_opacity`, `auto_hide_mouse` (default true), `crt`,
+  `reduced_motion`, `terminal`, `shell`, `confirm_exec` (default false),
+  `theme`, and log level. `auto-hide-mouse` is accepted as an alias.
+  `open_with_system` defaults to true; false masks `O` and Enter's
+  system-open action for regular files. `enter_shell` defaults to false;
+  true makes Enter open an in-app shell at the selected location.
+- `unfocused_opacity` is clamped to 0.0-1.0 and controls the panel and text
+  opacity of unfocused in-app terminal windows.
 - Keep all user-visible defaults documented in `README.md` and in `--help`.
 - Do not write the config file unless the user explicitly saves settings.
 - CLI: `cbrpnk-cruiser [PATH]`, `--no-crt`, `--hidden`, `--config <path>`,

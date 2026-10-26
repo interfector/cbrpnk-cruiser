@@ -48,7 +48,6 @@ Controls:
   ~                 Home directory
   /                 Filter current sector
   :                 Command console
-  T                 Terminal at current directory
   O                 Open with system handler
   R                 Recenter
   F                 Freeze motion

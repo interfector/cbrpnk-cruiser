@@ -4,10 +4,17 @@ use super::{cell_size, WindowId, WindowManager, WindowStatus};
 use crate::render::text::{Align, Fonts};
 use crate::theme::{
     alpha, ansi_color, AMBER, CYAN, CYAN_DIM, DEEP_PANEL, FAULT, FONT_TINY, GREEN, ICE, TEXT_MUTED,
-    VOID, WM_CURSOR_BLINK_HZ, WM_DEFAULT_BG, WM_DEFAULT_FG, WM_TERM_FONT, WM_TITLE_HEIGHT,
+    VOID, WM_CURSOR_BLINK_HZ, WM_DEFAULT_BG, WM_DEFAULT_FG, WM_FOCUSED_OPACITY, WM_TERM_FONT,
+    WM_TITLE_HEIGHT,
 };
 
-pub fn draw(fonts: &Fonts, manager: &WindowManager, time: f32, layout_window: Option<WindowId>) {
+pub fn draw(
+    fonts: &Fonts,
+    manager: &WindowManager,
+    time: f32,
+    layout_window: Option<WindowId>,
+    unfocused_opacity: f32,
+) {
     for id in manager.render_order() {
         if let Some(window) = manager.window(id) {
             draw_window(
@@ -16,6 +23,7 @@ pub fn draw(fonts: &Fonts, manager: &WindowManager, time: f32, layout_window: Op
                 manager.focused_id() == Some(id),
                 time,
                 layout_window == Some(id),
+                unfocused_opacity,
             );
         }
     }
@@ -27,20 +35,23 @@ fn draw_window(
     focused: bool,
     time: f32,
     layout_mode: bool,
+    unfocused_opacity: f32,
 ) {
     let rect = window.rect;
+    let opacity = window_opacity(focused, unfocused_opacity);
+    let text_opacity = window_text_opacity(focused, unfocused_opacity);
     draw_rectangle(
         rect.x + 5.0,
         rect.y + 5.0,
         rect.w,
         rect.h,
-        alpha(VOID, 0.55),
+        alpha(VOID, 0.55 * opacity),
     );
-    draw_rectangle(rect.x, rect.y, rect.w, rect.h, alpha(DEEP_PANEL, 0.98));
+    draw_rectangle(rect.x, rect.y, rect.w, rect.h, alpha(DEEP_PANEL, opacity));
     let border = if focused {
         AMBER
     } else {
-        alpha(CYAN_DIM, 0.85)
+        alpha(CYAN_DIM, 0.85 * opacity)
     };
     draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 1.5, border);
     if focused {
@@ -62,7 +73,7 @@ fn draw_window(
         if focused {
             alpha(AMBER, 0.16)
         } else {
-            alpha(CYAN_DIM, 0.2)
+            alpha(CYAN_DIM, 0.2 * opacity)
         },
     );
     draw_line(
@@ -81,7 +92,7 @@ fn draw_window(
         close.x + close.w * 0.5,
         close.y + 3.0,
         FONT_TINY,
-        if focused { AMBER } else { TEXT_MUTED },
+        fade(if focused { AMBER } else { TEXT_MUTED }, text_opacity),
         true,
         Align::Center,
     );
@@ -115,7 +126,7 @@ fn draw_window(
         close.x - 10.0,
         rect.y + 7.0,
         FONT_TINY,
-        status_color,
+        fade(status_color, text_opacity),
         false,
         Align::Right,
     );
@@ -125,7 +136,7 @@ fn draw_window(
             close.x - 10.0 - fonts.width(&shown_status, FONT_TINY, false) - 16.0,
             rect.y + 7.0,
             FONT_TINY,
-            alpha(AMBER, 0.75),
+            fade(alpha(AMBER, 0.75), text_opacity),
             true,
             Align::Right,
         );
@@ -143,23 +154,20 @@ fn draw_window(
         rect.y + 7.0,
         FONT_TINY,
         title_limit.max(40.0),
-        ICE,
+        fade(ICE, text_opacity),
         true,
         Align::Left,
     );
 
     let content = window.content_rect();
-    draw_rectangle(content.x, content.y, content.w, content.h, WM_DEFAULT_BG);
-    let (cell_width, cell_height) = cell_size(fonts);
-    draw_terminal(
-        fonts,
-        window,
-        content,
-        cell_width,
-        cell_height,
-        focused,
-        time,
+    draw_rectangle(
+        content.x,
+        content.y,
+        content.w,
+        content.h,
+        alpha(WM_DEFAULT_BG, opacity),
     );
+    draw_terminal(fonts, window, content, opacity, focused, time);
 
     draw_line(
         rect.right() - 12.0,
@@ -183,11 +191,12 @@ fn draw_terminal(
     fonts: &Fonts,
     window: &super::TerminalWindow,
     content: super::WindowRect,
-    cell_width: f32,
-    cell_height: f32,
+    opacity: f32,
     focused: bool,
     time: f32,
 ) {
+    let (cell_width, cell_height) = cell_size(fonts);
+    let text_opacity = if focused { 1.0 } else { opacity };
     let screen = window.screen();
     let (rows, cols) = screen.size();
     let rows = rows.get().min(window.rows.max(1));
@@ -224,7 +233,7 @@ fn draw_terminal(
             let y = content.y + row as f32 * cell_height;
             let width = (col - start) as f32 * cell_width;
             if style.bg != WM_DEFAULT_BG {
-                draw_rectangle(x, y, width, cell_height, style.bg);
+                draw_rectangle(x, y, width, cell_height, alpha(style.bg, opacity));
             }
             if text.chars().any(|character| character != ' ') {
                 let color = if style.dim {
@@ -232,7 +241,15 @@ fn draw_terminal(
                 } else {
                     style.fg
                 };
-                fonts.draw(&text, x, y, WM_TERM_FONT, color, style.bold, Align::Left);
+                fonts.draw(
+                    &text,
+                    x,
+                    y,
+                    WM_TERM_FONT,
+                    fade(color, text_opacity),
+                    style.bold,
+                    Align::Left,
+                );
             }
             if style.underline {
                 draw_line(
@@ -241,7 +258,7 @@ fn draw_terminal(
                     x + width,
                     y + cell_height - 2.0,
                     1.0,
-                    alpha(style.fg, 0.8),
+                    fade(alpha(style.fg, 0.8), text_opacity),
                 );
             }
         }
@@ -267,7 +284,7 @@ fn draw_terminal(
             content.y + content.h - 1.0,
             content.w,
             1.0,
-            alpha(GREEN, 0.08),
+            alpha(GREEN, 0.08 * opacity),
         );
     } else {
         draw_rectangle(
@@ -275,7 +292,7 @@ fn draw_terminal(
             content.y + content.h - 1.0,
             content.w,
             1.0,
-            alpha(FAULT, 0.18),
+            alpha(FAULT, 0.18 * opacity),
         );
     }
 }
@@ -309,5 +326,40 @@ fn terminal_color(color: vt100::Color, default: Color) -> Color {
         vt100::Color::Default => default,
         vt100::Color::Idx(index) => ansi_color(index),
         vt100::Color::Rgb(red, green, blue) => Color::from_rgba(red, green, blue, 0xff),
+    }
+}
+
+fn window_opacity(focused: bool, unfocused_opacity: f32) -> f32 {
+    if focused {
+        WM_FOCUSED_OPACITY
+    } else {
+        unfocused_opacity
+    }
+}
+
+fn window_text_opacity(focused: bool, unfocused_opacity: f32) -> f32 {
+    if focused {
+        1.0
+    } else {
+        unfocused_opacity
+    }
+}
+
+fn fade(color: Color, opacity: f32) -> Color {
+    Color::new(color.r, color.g, color.b, color.a * opacity)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unfocused_windows_use_configured_opacity() {
+        let configured = 0.55;
+        assert!(window_opacity(false, configured) < window_opacity(true, configured));
+        assert!((window_opacity(true, configured) - WM_FOCUSED_OPACITY).abs() < f32::EPSILON);
+        assert!((window_opacity(false, configured) - configured).abs() < f32::EPSILON);
+        assert!((window_text_opacity(false, configured) - configured).abs() < f32::EPSILON);
+        assert!((window_text_opacity(true, configured) - 1.0).abs() < f32::EPSILON);
     }
 }

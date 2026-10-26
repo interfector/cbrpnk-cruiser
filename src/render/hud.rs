@@ -460,7 +460,7 @@ pub fn draw_hints(fonts: &Fonts, hints: &Hints, time: f32) {
     top += 18.0;
     for line in [
         "ENTER act  ·  TAB lock  ·  : console",
-        "T term  ·  Ctrl+T window  ·  ? help",
+        "Ctrl+T window  ·  : console  ·  ? help",
         "WASD/arrows move  ·  F6 term  ·  F freeze",
     ] {
         fonts.draw(
@@ -668,7 +668,6 @@ pub fn draw_help(fonts: &Fonts) {
                 "Ctrl+H          toggle hidden files",
                 "F5              rescan",
                 "O               open with system handler",
-                "T               terminal at current sector",
             ],
         ),
         (

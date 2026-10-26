@@ -399,10 +399,14 @@ impl WindowManager {
     pub fn focus(&mut self, id: WindowId) {
         if self.window(id).is_some() {
             self.focused = Some(id);
+            log::debug!("terminal window {id} focused");
         }
     }
 
     pub fn release_focus(&mut self) {
+        if self.focused.is_some() {
+            log::debug!("terminal focus released");
+        }
         self.focused = None;
         self.drag = None;
     }

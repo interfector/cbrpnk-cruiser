@@ -91,6 +91,8 @@ pub const WM_RESIZE_HANDLE: f32 = 16.0;
 pub const WM_CURSOR_BLINK_HZ: f32 = 1.8;
 pub const WM_DEFAULT_FG: Color = ICE;
 pub const WM_DEFAULT_BG: Color = DEEP_PANEL;
+pub const WM_FOCUSED_OPACITY: f32 = 0.98;
+pub const WM_UNFOCUSED_OPACITY: f32 = 0.70;
 
 pub fn ansi_color(index: u8) -> Color {
     match index {

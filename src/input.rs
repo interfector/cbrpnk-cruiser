@@ -21,7 +21,6 @@ pub enum Intent {
     NextNode,
     PrevNode,
     Open,
-    Terminal,
     TerminalWindow,
     RunInWindow,
     CycleWindow,
@@ -46,6 +45,10 @@ pub fn any_input_pressed() -> bool {
     get_last_key_pressed().is_some()
         || is_mouse_button_pressed(MouseButton::Left)
         || is_mouse_button_pressed(MouseButton::Right)
+}
+
+pub fn pointer_visible(auto_hide_mouse: bool, window_focused: bool) -> bool {
+    !auto_hide_mouse || window_focused
 }
 
 pub fn text_shortcut(character: char) -> Option<Intent> {
@@ -131,9 +134,6 @@ pub fn cruise_intent(locked: bool) -> Option<Intent> {
     }
     if is_key_pressed(KeyCode::O) {
         return Some(Intent::Open);
-    }
-    if is_key_pressed(KeyCode::T) {
-        return Some(Intent::Terminal);
     }
     if shift_down() && is_key_pressed(KeyCode::Semicolon) {
         return Some(Intent::Console);
@@ -241,6 +241,14 @@ mod tests {
         assert!((up + 1.0).abs() < 0.001);
         let (near, _) = pointer_steer((560.0, 300.0), 1000.0, 600.0);
         assert!(near > 0.0 && near < 0.05);
+    }
+
+    #[test]
+    fn pointer_shows_for_focused_windows() {
+        assert!(!pointer_visible(true, false));
+        assert!(pointer_visible(true, true));
+        assert!(pointer_visible(false, false));
+        assert!(pointer_visible(false, true));
     }
 
     #[test]

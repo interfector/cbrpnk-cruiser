@@ -99,6 +99,7 @@ pub struct App {
     last_frame_ms: f32,
     windows: WindowManager,
     layout_window: Option<crate::wm::WindowId>,
+    pointer_visible: bool,
 }
 
 impl App {
@@ -110,6 +111,7 @@ impl App {
         }
         let start = initial_path(&cli, &config, &mut warnings);
         let show_hidden = cli.hidden || config.show_hidden;
+        let pointer_visible = !config.auto_hide_mouse;
         let console = ConsoleState::configured(
             config.console_lines,
             config.console_min_lines,
@@ -162,12 +164,14 @@ impl App {
             last_frame_ms: 0.0,
             windows: WindowManager::new(),
             layout_window: None,
+            pointer_visible,
         };
 
         for warning in warnings {
             app.push_status(format!("CONFIG: {warning}"), Tone::Error);
             app.console.push(format!("config: {warning}"), Tone::Error);
         }
+        macroquad::input::show_mouse(app.pointer_visible);
         app.start_scan(start.clone(), Some(PendingNav { via_symlink: false }));
         app
     }
@@ -191,6 +195,7 @@ impl App {
                 break;
             }
         }
+        macroquad::input::show_mouse(true);
     }
 
     fn update(&mut self, dt: f32) {
@@ -308,6 +313,7 @@ impl App {
     }
 
     fn handle_intent(&mut self, intent: Intent) {
+        log::debug!("intent {intent:?}");
         match intent {
             Intent::Quit => self.quit = true,
             Intent::Help => {
@@ -335,8 +341,13 @@ impl App {
             Intent::ToggleLock => self.toggle_lock(),
             Intent::PrevNode => self.cycle_node(-1),
             Intent::NextNode => self.cycle_node(1),
-            Intent::Open => self.open_selected(),
-            Intent::Terminal => self.start_terminal(None),
+            Intent::Open => {
+                if self.config.open_with_system {
+                    self.open_selected();
+                } else {
+                    self.push_status("SYSTEM OPEN DISABLED", Tone::Normal);
+                }
+            }
             Intent::TerminalWindow => self.open_shell_window(self.cwd.clone()),
             Intent::RunInWindow => self.open_selected_in_window(),
             Intent::CycleWindow => self.cycle_window_focus(),
@@ -449,7 +460,10 @@ impl App {
             return;
         }
         self.push_status(
-            format!("NOT EXECUTABLE: {}  ·  USE O OR T", entry.display_name()),
+            format!(
+                "NOT EXECUTABLE: {}  ·  USE O OR CTRL+T",
+                entry.display_name()
+            ),
             Tone::Normal,
         );
     }
@@ -493,6 +507,7 @@ impl App {
             return;
         }
         if is_key_pressed(KeyCode::F12) {
+            log::debug!("terminal F12");
             self.layout_window = None;
             if input::shift_down() {
                 self.close_focused_window();
@@ -683,6 +698,7 @@ impl App {
                 return true;
             }
             if self.windows.has_focus() {
+                log::debug!("click outside terminal windows");
                 self.layout_window = None;
                 self.windows.release_focus();
                 self.push_status("TERMINAL FOCUS RELEASED", Tone::Normal);
@@ -1238,6 +1254,10 @@ impl App {
     }
 
     fn activate_selected(&mut self) {
+        if self.config.enter_shell {
+            self.activate_selected_shell();
+            return;
+        }
         if self.selected_is_parent() {
             self.go_parent();
             return;
@@ -1268,13 +1288,55 @@ impl App {
         } else if entry.executable {
             self.launch_executable(&entry.path);
         } else if entry.kind == crate::fs::EntryKind::File {
-            self.open_path(&entry.path);
+            if self.config.open_with_system {
+                self.open_path(&entry.path);
+            } else {
+                self.push_status(
+                    format!("SYSTEM OPEN DISABLED: {}", entry.display_name()),
+                    Tone::Normal,
+                );
+            }
         } else {
             self.push_status(
                 format!("INSPECT ONLY: {}", entry.display_name()),
                 Tone::Normal,
             );
         }
+    }
+
+    fn activate_selected_shell(&mut self) {
+        let target = if self.selected_is_parent() {
+            self.cwd.parent().map(Path::to_path_buf)
+        } else {
+            let Some(entry) = self.selected_entry().cloned() else {
+                self.push_status("NO TARGET LOCKED", Tone::Normal);
+                return;
+            };
+            if entry.link_broken {
+                self.push_status(
+                    format!("BROKEN PORTAL: {}", entry.display_name()),
+                    Tone::Error,
+                );
+                return;
+            }
+            if entry.is_dir_like() {
+                if !entry.readable {
+                    self.push_status(
+                        format!("UNREADABLE SECTOR: {}", entry.display_name()),
+                        Tone::Error,
+                    );
+                    return;
+                }
+                Some(entry.path)
+            } else {
+                Some(shell_directory_for(&entry, &self.cwd))
+            }
+        };
+        let Some(directory) = target else {
+            self.push_status("ALREADY AT ROOT", Tone::Normal);
+            return;
+        };
+        self.open_shell_window(directory);
     }
 
     fn launch_executable(&mut self, path: &Path) {
@@ -1602,7 +1664,17 @@ impl App {
         macroquad::window::set_fullscreen(self.fullscreen);
     }
 
-    fn draw(&self) {
+    fn sync_pointer_visibility(&mut self) {
+        let visible = input::pointer_visible(self.config.auto_hide_mouse, self.windows.has_focus());
+        if visible != self.pointer_visible {
+            self.pointer_visible = visible;
+            macroquad::input::show_mouse(visible);
+            log::debug!("pointer {}", if visible { "shown" } else { "hidden" });
+        }
+    }
+
+    fn draw(&mut self) {
+        self.sync_pointer_visibility();
         clear_background(VOID);
         if self.mode == Mode::Boot {
             let progress = ((get_time() - self.boot_started) / BOOT_SECONDS as f64) as f32;
@@ -1682,6 +1754,7 @@ impl App {
             &self.windows,
             self.time,
             self.layout_window,
+            self.config.unfocused_opacity,
         );
 
         if self.mode == Mode::Console {
@@ -1712,6 +1785,18 @@ impl App {
 
         self.renderer.draw_post(self.time);
     }
+}
+
+fn shell_directory_for(entry: &Entry, cwd: &Path) -> PathBuf {
+    if entry.is_dir_like() {
+        return entry.path.clone();
+    }
+    entry
+        .path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| cwd.to_path_buf())
 }
 
 fn initial_path(cli: &Cli, config: &Config, warnings: &mut Vec<String>) -> PathBuf {
@@ -1750,4 +1835,53 @@ fn read_host() -> String {
 fn is_key_down_alt() -> bool {
     macroquad::prelude::is_key_down(KeyCode::LeftAlt)
         || macroquad::prelude::is_key_down(KeyCode::RightAlt)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fs::EntryKind;
+
+    fn entry(path: &str, kind: EntryKind, link_target_is_dir: Option<bool>) -> Entry {
+        Entry {
+            name: OsString::from(path.rsplit('/').next().unwrap_or(path)),
+            path: PathBuf::from(path),
+            kind,
+            size: 0,
+            modified: None,
+            mode: None,
+            executable: false,
+            readable: true,
+            link_target: None,
+            link_target_is_dir,
+            link_broken: false,
+            metadata_error: None,
+            hidden: false,
+        }
+    }
+
+    #[test]
+    fn shell_directory_uses_directory_or_parent() {
+        let cwd = Path::new("/home/user");
+        let directory = entry("/home/user/project", EntryKind::Directory, None);
+        assert_eq!(
+            shell_directory_for(&directory, cwd),
+            PathBuf::from("/home/user/project")
+        );
+        let file = entry("/home/user/project/readme.txt", EntryKind::File, None);
+        assert_eq!(
+            shell_directory_for(&file, cwd),
+            PathBuf::from("/home/user/project")
+        );
+        let link = entry("/home/user/project-link", EntryKind::Symlink, Some(true));
+        assert_eq!(
+            shell_directory_for(&link, cwd),
+            PathBuf::from("/home/user/project-link")
+        );
+        let relative = entry("readme.txt", EntryKind::File, None);
+        assert_eq!(
+            shell_directory_for(&relative, cwd),
+            PathBuf::from("/home/user")
+        );
+    }
 }

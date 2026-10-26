@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use crate::theme::{CONSOLE_LINES, CONSOLE_MAX_LINES, CONSOLE_MIN_LINES};
+use crate::theme::{CONSOLE_LINES, CONSOLE_MAX_LINES, CONSOLE_MIN_LINES, WM_UNFOCUSED_OPACITY};
 
 const CONSOLE_HARD_MIN: usize = 2;
 const CONSOLE_HARD_MAX: usize = 64;
@@ -18,6 +18,11 @@ pub struct Config {
     pub console_min_lines: usize,
     pub console_max_lines: usize,
     pub font_scale: f32,
+    pub unfocused_opacity: f32,
+    #[serde(alias = "auto-hide-mouse")]
+    pub auto_hide_mouse: bool,
+    pub open_with_system: bool,
+    pub enter_shell: bool,
     pub crt: bool,
     pub reduced_motion: bool,
     pub terminal: Option<String>,
@@ -37,6 +42,10 @@ impl Default for Config {
             console_min_lines: CONSOLE_MIN_LINES,
             console_max_lines: CONSOLE_MAX_LINES,
             font_scale: 1.0,
+            unfocused_opacity: WM_UNFOCUSED_OPACITY,
+            auto_hide_mouse: true,
+            open_with_system: true,
+            enter_shell: false,
             crt: true,
             reduced_motion: false,
             terminal: None,
@@ -122,6 +131,19 @@ pub fn validate(mut config: Config) -> (Config, Option<String>) {
     if !config.font_scale.is_finite() {
         warnings.push("font_scale is not finite, using 1.0".to_string());
         config.font_scale = 1.0;
+    }
+    if !config.unfocused_opacity.is_finite() {
+        warnings.push(format!(
+            "unfocused_opacity is not finite, using {WM_UNFOCUSED_OPACITY}"
+        ));
+        config.unfocused_opacity = WM_UNFOCUSED_OPACITY;
+    } else if !(0.0..=1.0).contains(&config.unfocused_opacity) {
+        let opacity = config.unfocused_opacity.clamp(0.0, 1.0);
+        warnings.push(format!(
+            "unfocused_opacity {} clamped to {opacity}",
+            config.unfocused_opacity
+        ));
+        config.unfocused_opacity = opacity;
     }
     if config.theme != "default" {
         warnings.push(format!("unknown theme {:?}, using default", config.theme));
@@ -246,11 +268,41 @@ mod tests {
         let config = Config {
             max_entries: 0,
             font_scale: 99.0,
+            unfocused_opacity: 2.0,
             ..Config::default()
         };
         let (config, warning) = validate(config);
         assert_eq!(config.max_entries, 1);
         assert_eq!(config.font_scale, 2.0);
+        assert_eq!(config.unfocused_opacity, 1.0);
+        assert!(warning.is_some());
+    }
+
+    #[test]
+    fn parses_terminal_visual_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "unfocused_opacity = 0.42\nauto-hide-mouse = false\nopen_with_system = false\nenter_shell = true\n",
+        )
+        .unwrap();
+        let loaded = load(Some(&path));
+        assert_eq!(loaded.config.unfocused_opacity, 0.42);
+        assert!(!loaded.config.auto_hide_mouse);
+        assert!(!loaded.config.open_with_system);
+        assert!(loaded.config.enter_shell);
+        assert!(loaded.warning.is_none());
+    }
+
+    #[test]
+    fn replaces_non_finite_opacity() {
+        let config = Config {
+            unfocused_opacity: f32::NAN,
+            ..Config::default()
+        };
+        let (config, warning) = validate(config);
+        assert_eq!(config.unfocused_opacity, WM_UNFOCUSED_OPACITY);
         assert!(warning.is_some());
     }
 
