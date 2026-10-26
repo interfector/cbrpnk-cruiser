@@ -3,4 +3,31 @@ set -eu
 
 self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "${HOME:-/}"
+
+session_size=
+if command -v xrandr >/dev/null 2>&1; then
+    session_size=$(xrandr --current 2>/dev/null | awk '
+        /^Screen / {
+            for (i = 1; i <= NF; i++) {
+                if ($i == "current") {
+                    height = $(i + 3)
+                    sub(/,.*/, "", height)
+                    print $(i + 1) "x" height
+                    exit
+                }
+            }
+        }
+    ')
+fi
+if [ -z "$session_size" ] && command -v xdpyinfo >/dev/null 2>&1; then
+    session_size=$(xdpyinfo 2>/dev/null | awk '/ dimensions:/ { print $2; exit }')
+fi
+
+CBRPNK_SESSION=1
+export CBRPNK_SESSION
+if [ -n "$session_size" ]; then
+    CBRPNK_SESSION_SIZE=$session_size
+    export CBRPNK_SESSION_SIZE
+fi
+
 exec "$self_dir/cbrpnk-cruiser" "$@"

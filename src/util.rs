@@ -74,6 +74,13 @@ pub fn normalize_path(path: &Path) -> PathBuf {
     out
 }
 
+pub fn parse_window_size(value: &str) -> Option<(i32, i32)> {
+    let (width, height) = value.split_once('x')?;
+    let width = width.parse().ok()?;
+    let height = height.parse().ok()?;
+    (width > 0 && height > 0).then_some((width, height))
+}
+
 pub fn format_size(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = KIB * 1024.0;
@@ -205,6 +212,15 @@ mod tests {
     fn natural_sort_orders_numbers() {
         assert_eq!(natural_cmp("file2", "file10"), Ordering::Less);
         assert_eq!(natural_cmp("File10", "file10"), Ordering::Less);
+    }
+
+    #[test]
+    fn parses_window_size() {
+        assert_eq!(parse_window_size("1920x1080"), Some((1920, 1080)));
+        assert_eq!(parse_window_size("0x1080"), None);
+        assert_eq!(parse_window_size("1920x0"), None);
+        assert_eq!(parse_window_size("1920"), None);
+        assert_eq!(parse_window_size("wide"), None);
     }
 
     #[test]

@@ -50,7 +50,7 @@ CBRPNK//CRUISER can appear in the display manager's session menu next to
 AwesomeWM, Sway, and other desktops. It is not an X11 window manager and does
 not manage other applications' top-level windows. It does manage its own
 in-app terminal windows. Selecting this session launches the cruiser directly
-as the session application, starting in `$HOME`.
+as the session application in `$HOME`, sized to the full display.
 
 The session is an X11 session because the current Linux backend is X11.
 

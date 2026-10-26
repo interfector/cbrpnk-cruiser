@@ -2,6 +2,7 @@ use cbrpnk_cruiser::app::App;
 use cbrpnk_cruiser::cli::{self, HELP};
 use cbrpnk_cruiser::config;
 use cbrpnk_cruiser::render::Renderer;
+use cbrpnk_cruiser::util;
 
 fn main() {
     let cli = match cli::parse_env() {
@@ -29,15 +30,25 @@ fn main() {
     let crt = loaded.config.crt && !cli.no_crt;
     let font_scale = loaded.config.font_scale;
 
+    let session = std::env::var_os("CBRPNK_SESSION").is_some();
+    let session_size = std::env::var("CBRPNK_SESSION_SIZE")
+        .ok()
+        .and_then(|value| util::parse_window_size(&value));
+
     let mut window = macroquad::conf::Conf::default();
     window.miniquad_conf.window_title = "CBRPNK//CRUISER".to_string();
-    window.miniquad_conf.window_width = 1280;
-    window.miniquad_conf.window_height = 800;
-    window.miniquad_conf.window_resizable = true;
+    let (window_width, window_height) = session_size.unwrap_or((1280, 800));
+    window.miniquad_conf.window_width = window_width;
+    window.miniquad_conf.window_height = window_height;
+    window.miniquad_conf.window_resizable = !session;
+    window.miniquad_conf.fullscreen = session;
     window.miniquad_conf.high_dpi = true;
     window.miniquad_conf.sample_count = 4;
 
     macroquad::Window::from_config(window, async move {
+        if session {
+            macroquad::miniquad::window::set_window_position(0, 0);
+        }
         let renderer = Renderer::new(font_scale, crt);
         let app = App::new(cli, loaded, renderer);
         app.run().await;

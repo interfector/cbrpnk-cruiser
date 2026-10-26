@@ -717,7 +717,9 @@ sudo SKIP_BUILD=1 packaging/install-session.sh
 The installer places the binary and session launcher in `$PREFIX/bin`
 (default `/usr/local/bin`) and the session entry in
 `/usr/share/xsessions`. It is a session entry like AwesomeWM or Sway, not an
-X11 window manager; the cruiser manages only its in-app terminal windows.
+X11 window manager; the cruiser manages only its in-app terminal windows. The
+session launcher sets `CBRPNK_SESSION` and passes the detected display size in
+`CBRPNK_SESSION_SIZE`, so the cruiser starts fullscreen.
 
 ### 6.3 CI expectation
 
