@@ -22,6 +22,9 @@ pub enum Intent {
     PrevNode,
     Open,
     Terminal,
+    TerminalWindow,
+    RunInWindow,
+    CycleWindow,
     Console,
     Filter,
     Recenter,
@@ -95,6 +98,15 @@ pub fn cruise_intent(locked: bool) -> Option<Intent> {
     }
     if ctrl_down() && is_key_pressed(KeyCode::H) {
         return Some(Intent::ToggleHidden);
+    }
+    if ctrl_down() && is_key_pressed(KeyCode::T) {
+        return Some(Intent::TerminalWindow);
+    }
+    if ctrl_down() && is_key_pressed(KeyCode::Enter) {
+        return Some(Intent::RunInWindow);
+    }
+    if is_key_pressed(KeyCode::F6) {
+        return Some(Intent::CycleWindow);
     }
     if is_key_pressed(KeyCode::F5) {
         return Some(Intent::Rescan);

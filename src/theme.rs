@@ -75,3 +75,52 @@ pub const STATUS_LIFETIME: f32 = 7.0;
 pub const CAMERA_MIN: f32 = -1.0;
 pub const CAMERA_MAX: f32 = 16.0;
 pub const CAMERA_RADIUS: f32 = 28.0;
+
+pub const WM_MAX_WINDOWS: usize = 8;
+pub const WM_DEFAULT_WIDTH: f32 = 760.0;
+pub const WM_DEFAULT_HEIGHT: f32 = 430.0;
+pub const WM_MIN_WIDTH: f32 = 340.0;
+pub const WM_MIN_HEIGHT: f32 = 180.0;
+pub const WM_TITLE_HEIGHT: f32 = 28.0;
+pub const WM_PADDING: f32 = 8.0;
+pub const WM_TERM_FONT: f32 = 13.0;
+pub const WM_SCROLLBACK: usize = 2000;
+pub const WM_CASCADE_STEP: f32 = 32.0;
+pub const WM_START_TOP: f32 = 100.0;
+pub const WM_RESIZE_HANDLE: f32 = 16.0;
+pub const WM_CURSOR_BLINK_HZ: f32 = 1.8;
+pub const WM_DEFAULT_FG: Color = ICE;
+pub const WM_DEFAULT_BG: Color = DEEP_PANEL;
+
+pub fn ansi_color(index: u8) -> Color {
+    match index {
+        0 => VOID,
+        1 => FAULT,
+        2 => GREEN,
+        3 => AMBER,
+        4 => CYAN_DIM,
+        5 => MAGENTA,
+        6 => CYAN,
+        7 => ICE,
+        8 => GRID_DIM,
+        9 => rgb(0xff7a72),
+        10 => rgb(0x7dff6a),
+        11 => rgb(0xffd166),
+        12 => rgb(0x5ab7ff),
+        13 => rgb(0xff7ac8),
+        14 => rgb(0x7af5ff),
+        15 => rgb(0xffffff),
+        16..=231 => {
+            let value = index - 16;
+            let r = value / 36;
+            let g = (value % 36) / 6;
+            let b = value % 6;
+            let channel = |part: u8| if part == 0 { 0 } else { 55 + part * 40 };
+            Color::from_rgba(channel(r), channel(g), channel(b), 0xff)
+        }
+        _ => {
+            let level = 8 + (index - 232) * 10;
+            Color::from_rgba(level, level, level, 0xff)
+        }
+    }
+}

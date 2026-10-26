@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use macroquad::prelude::{
     clear_background, get_char_pressed, get_fps, get_frame_time, get_time, is_key_pressed,
-    is_quit_requested, next_frame, screen_height, screen_width, KeyCode,
+    is_mouse_button_down, is_mouse_button_pressed, is_quit_requested, mouse_position, next_frame,
+    screen_height, screen_width, KeyCode, MouseButton,
 };
 
 use crate::camera::Camera;
@@ -28,6 +29,7 @@ use crate::theme::{
     STATUS_LIFETIME, VOID,
 };
 use crate::util::home_dir;
+use crate::wm::{self, DragKind, WindowManager};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
@@ -95,6 +97,8 @@ pub struct App {
     statuses: Vec<StatusMessage>,
     host: String,
     last_frame_ms: f32,
+    windows: WindowManager,
+    layout_window: Option<crate::wm::WindowId>,
 }
 
 impl App {
@@ -156,6 +160,8 @@ impl App {
             statuses: Vec::new(),
             host,
             last_frame_ms: 0.0,
+            windows: WindowManager::new(),
+            layout_window: None,
         };
 
         for warning in warnings {
@@ -177,6 +183,7 @@ impl App {
             self.poll_scans();
             self.poll_counts();
             self.poll_launches();
+            self.poll_windows();
             self.update(dt);
             self.draw();
             next_frame().await;
@@ -189,16 +196,21 @@ impl App {
     fn update(&mut self, dt: f32) {
         self.age_statuses(dt);
         self.auto_enter_guard = (self.auto_enter_guard - dt).max(0.0);
-        if input::ctrl_down() && is_key_pressed(KeyCode::Q) {
-            self.quit = true;
-            return;
-        }
-        if is_key_pressed(KeyCode::F3) {
-            self.show_debug = !self.show_debug;
-        }
-        if is_key_pressed(KeyCode::F11) || (is_key_down_alt() && is_key_pressed(KeyCode::Enter)) {
-            self.toggle_fullscreen();
-            return;
+        self.windows.sync_sizes(&self.renderer.fonts);
+        let terminal_focused = self.mode == Mode::Cruise && self.windows.has_focus();
+        if !terminal_focused {
+            if input::ctrl_down() && is_key_pressed(KeyCode::Q) {
+                self.quit = true;
+                return;
+            }
+            if is_key_pressed(KeyCode::F3) {
+                self.show_debug = !self.show_debug;
+            }
+            if is_key_pressed(KeyCode::F11) || (is_key_down_alt() && is_key_pressed(KeyCode::Enter))
+            {
+                self.toggle_fullscreen();
+                return;
+            }
         }
 
         match self.mode {
@@ -231,6 +243,14 @@ impl App {
             return;
         }
 
+        if self.handle_window_mouse() {
+            return;
+        }
+        if self.windows.has_focus() {
+            self.handle_window_keys();
+            return;
+        }
+
         if let Some(intent) = input::next_text_shortcut() {
             self.handle_intent(intent);
             return;
@@ -238,7 +258,7 @@ impl App {
 
         if let Some(intent) = input::cruise_intent(self.locked) {
             self.handle_intent(intent);
-            if self.quit {
+            if self.quit || self.windows.has_focus() {
                 return;
             }
         }
@@ -317,6 +337,9 @@ impl App {
             Intent::NextNode => self.cycle_node(1),
             Intent::Open => self.open_selected(),
             Intent::Terminal => self.start_terminal(None),
+            Intent::TerminalWindow => self.open_shell_window(self.cwd.clone()),
+            Intent::RunInWindow => self.open_selected_in_window(),
+            Intent::CycleWindow => self.cycle_window_focus(),
             Intent::Console => self.open_console(),
             Intent::Filter => self.open_filter(),
             Intent::Recenter => {
@@ -335,6 +358,346 @@ impl App {
                 );
             }
         }
+    }
+
+    fn open_shell_window(&mut self, directory: PathBuf) {
+        if !directory.is_dir() {
+            let message = format!("NOT A DIRECTORY: {}", directory.display());
+            self.push_status(message.clone(), Tone::Error);
+            self.console.push(message, Tone::Error);
+            return;
+        }
+        let shell = self.internal_shell();
+        match self
+            .windows
+            .open_shell(shell.as_deref(), &directory, &self.renderer.fonts)
+        {
+            Ok(id) => {
+                self.layout_window = None;
+                let (title, pid) = self
+                    .windows
+                    .window(id)
+                    .map(|window| (window.title.clone(), window.pid()))
+                    .unwrap_or_else(|| ("shell".to_string(), None));
+                let pid = pid.map(|pid| format!(" PID {pid}")).unwrap_or_default();
+                let message = format!("TERMINAL WINDOW: {title}{pid}  ({})", directory.display());
+                self.push_status(message.clone(), Tone::Success);
+                self.console.push(message, Tone::Success);
+            }
+            Err(error) => {
+                let message = format!("TERMINAL FAILED: {error}");
+                self.push_status(message.clone(), Tone::Error);
+                self.console.push(message, Tone::Error);
+            }
+        }
+    }
+
+    fn open_selected_in_window(&mut self) {
+        if self.selected_is_parent() {
+            if let Some(parent) = self.cwd.parent() {
+                self.open_shell_window(parent.to_path_buf());
+            } else {
+                self.push_status("NO PARENT SECTOR", Tone::Normal);
+            }
+            return;
+        }
+        let Some(entry) = self.selected_entry().cloned() else {
+            self.push_status("NO TARGET LOCKED", Tone::Normal);
+            return;
+        };
+        if entry.link_broken {
+            self.push_status(
+                format!("BROKEN PORTAL: {}", entry.display_name()),
+                Tone::Error,
+            );
+            return;
+        }
+        if entry.is_dir_like() {
+            if !entry.readable {
+                self.push_status(
+                    format!("UNREADABLE SECTOR: {}", entry.display_name()),
+                    Tone::Error,
+                );
+                return;
+            }
+            self.open_shell_window(entry.path.clone());
+            return;
+        }
+        if entry.executable {
+            match self
+                .windows
+                .open_executable(&entry.path, &self.cwd, &self.renderer.fonts)
+            {
+                Ok(id) => {
+                    self.layout_window = None;
+                    let (title, pid) = self
+                        .windows
+                        .window(id)
+                        .map(|window| (window.title.clone(), window.pid()))
+                        .unwrap_or_else(|| (entry.display_name(), None));
+                    let pid = pid.map(|pid| format!(" PID {pid}")).unwrap_or_default();
+                    let message = format!("TERMINAL PROGRAM: {title}{pid}");
+                    self.push_status(message.clone(), Tone::Success);
+                    self.console.push(message, Tone::Success);
+                }
+                Err(error) => {
+                    let message = format!("WINDOW LAUNCH FAILED: {error}");
+                    self.push_status(message.clone(), Tone::Error);
+                    self.console.push(message, Tone::Error);
+                }
+            }
+            return;
+        }
+        self.push_status(
+            format!("NOT EXECUTABLE: {}  ·  USE O OR T", entry.display_name()),
+            Tone::Normal,
+        );
+    }
+
+    fn cycle_window_focus(&mut self) {
+        self.layout_window = None;
+        match self.windows.focus_next() {
+            Some(id) => {
+                let title = self
+                    .windows
+                    .window(id)
+                    .map(|window| window.title.clone())
+                    .unwrap_or_else(|| "terminal".to_string());
+                self.push_status(format!("TERMINAL FOCUS: {title}"), Tone::Command);
+            }
+            None => self.push_status("NO TERMINAL WINDOWS", Tone::Normal),
+        }
+    }
+
+    fn close_focused_window(&mut self) {
+        let Some(id) = self.windows.focused_id() else {
+            return;
+        };
+        let title = self
+            .windows
+            .window(id)
+            .map(|window| window.title.clone())
+            .unwrap_or_else(|| "terminal".to_string());
+        self.layout_window = None;
+        if self.windows.close(id) {
+            self.push_status(format!("TERMINAL CLOSED: {title}"), Tone::Normal);
+        }
+    }
+
+    fn handle_window_keys(&mut self) {
+        let Some(id) = self.windows.focused_id() else {
+            return;
+        };
+        if is_key_pressed(KeyCode::F6) {
+            self.cycle_window_focus();
+            return;
+        }
+        if is_key_pressed(KeyCode::F12) {
+            self.layout_window = None;
+            if input::shift_down() {
+                self.close_focused_window();
+            } else {
+                self.windows.release_focus();
+                self.push_status("TERMINAL FOCUS RELEASED", Tone::Normal);
+            }
+            return;
+        }
+
+        if self.layout_window == Some(id) {
+            if is_key_pressed(KeyCode::F7)
+                || is_key_pressed(KeyCode::Escape)
+                || is_key_pressed(KeyCode::Enter)
+            {
+                self.layout_window = None;
+                self.push_status("WINDOW LAYOUT CLOSED", Tone::Normal);
+                return;
+            }
+            let shift = input::shift_down();
+            let step = if shift { 16.0 } else { 10.0 };
+            let mut moved = false;
+            if is_key_pressed(KeyCode::Left) {
+                if shift {
+                    self.windows.resize_by(id, -step, 0.0);
+                } else {
+                    self.windows.nudge(id, -step, 0.0);
+                }
+                moved = true;
+            }
+            if is_key_pressed(KeyCode::Right) {
+                if shift {
+                    self.windows.resize_by(id, step, 0.0);
+                } else {
+                    self.windows.nudge(id, step, 0.0);
+                }
+                moved = true;
+            }
+            if is_key_pressed(KeyCode::Up) {
+                if shift {
+                    self.windows.resize_by(id, 0.0, -step);
+                } else {
+                    self.windows.nudge(id, 0.0, -step);
+                }
+                moved = true;
+            }
+            if is_key_pressed(KeyCode::Down) {
+                if shift {
+                    self.windows.resize_by(id, 0.0, step);
+                } else {
+                    self.windows.nudge(id, 0.0, step);
+                }
+                moved = true;
+            }
+            if moved {
+                self.push_status("WINDOW GEOMETRY UPDATED", Tone::Normal);
+            }
+            return;
+        }
+
+        if is_key_pressed(KeyCode::F7) {
+            self.layout_window = Some(id);
+            self.push_status(
+                "WINDOW LAYOUT: ARROWS MOVE · SHIFT+ARROWS RESIZE · F7/ESC DONE",
+                Tone::Command,
+            );
+            return;
+        }
+
+        let shift = input::shift_down();
+        if shift && is_key_pressed(KeyCode::PageUp) {
+            self.scroll_focused_terminal(true);
+            return;
+        }
+        if shift && is_key_pressed(KeyCode::PageDown) {
+            self.scroll_focused_terminal(false);
+            return;
+        }
+
+        let ctrl = input::ctrl_down();
+        let alt = is_key_down_alt();
+        if ctrl && !alt {
+            if let Some(byte) = wm::input::pressed_control_byte() {
+                if let Some(window) = self.windows.window_mut(id) {
+                    window.write(&[byte]);
+                }
+                let _ = wm::input::take_text(true, alt);
+                return;
+            }
+        }
+        let application_cursor = self
+            .windows
+            .window(id)
+            .is_some_and(|window| window.screen().application_cursor());
+        if let Some(sequence) = wm::input::pressed_sequence(shift, application_cursor) {
+            if let Some(window) = self.windows.window_mut(id) {
+                window.write(sequence);
+            }
+            return;
+        }
+        let bytes = wm::input::take_text(ctrl, alt);
+        if !bytes.is_empty() {
+            if let Some(window) = self.windows.window_mut(id) {
+                window.write(&bytes);
+            }
+        }
+    }
+
+    fn scroll_focused_terminal(&mut self, up: bool) {
+        let Some(id) = self.windows.focused_id() else {
+            return;
+        };
+        let rows = self
+            .windows
+            .window(id)
+            .map(|window| window.rows.max(1) as usize)
+            .unwrap_or(1);
+        if let Some(window) = self.windows.window_mut(id) {
+            if up {
+                window.scroll_up(rows);
+            } else {
+                window.scroll_down(rows);
+            }
+        }
+    }
+
+    fn handle_window_mouse(&mut self) -> bool {
+        let wheel = input::mouse_wheel_delta();
+        if wheel.abs() > 0.001 {
+            let point = mouse_position();
+            if let Some(id) = self.windows.hit_test(point) {
+                let amount = (wheel.abs().ceil() as usize).saturating_mul(3).max(1);
+                if let Some(window) = self.windows.window_mut(id) {
+                    if wheel > 0.0 {
+                        window.scroll_up(amount);
+                    } else {
+                        window.scroll_down(amount);
+                    }
+                }
+                return true;
+            }
+        }
+
+        let left_down = is_mouse_button_down(MouseButton::Left);
+        if self.windows.drag_id().is_some() {
+            if left_down {
+                self.windows.update_drag(mouse_position());
+            } else {
+                self.windows.end_drag();
+            }
+            return true;
+        }
+
+        if is_mouse_button_pressed(MouseButton::Left) {
+            let point = mouse_position();
+            if let Some(id) = self.windows.hit_test(point) {
+                let close = self
+                    .windows
+                    .window(id)
+                    .is_some_and(|window| window.close_rect().contains(point));
+                if close {
+                    self.layout_window = None;
+                    let title = self
+                        .windows
+                        .window(id)
+                        .map(|window| window.title.clone())
+                        .unwrap_or_else(|| "terminal".to_string());
+                    self.windows.close(id);
+                    self.push_status(format!("TERMINAL CLOSED: {title}"), Tone::Normal);
+                    return true;
+                }
+                if self.windows.focused_id() != Some(id) {
+                    self.layout_window = None;
+                }
+                self.windows.focus(id);
+                let drag = self.windows.window(id).and_then(|window| {
+                    if window.resize_rect().contains(point) {
+                        Some(DragKind::Resize)
+                    } else if window.title_rect().contains(point) {
+                        Some(DragKind::Move)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(kind) = drag {
+                    self.windows.begin_drag(id, kind, point);
+                }
+                return true;
+            }
+            if self.windows.has_focus() {
+                self.layout_window = None;
+                self.windows.release_focus();
+                self.push_status("TERMINAL FOCUS RELEASED", Tone::Normal);
+                return true;
+            }
+        }
+        false
+    }
+
+    fn internal_shell(&self) -> Option<PathBuf> {
+        self.config
+            .shell
+            .as_ref()
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("SHELL").map(PathBuf::from))
     }
 
     fn handle_filter_keys(&mut self) {
@@ -682,6 +1045,23 @@ impl App {
                     self.push_status(format!("LAUNCH FAILED: {message}"), Tone::Error);
                 }
             }
+        }
+    }
+
+    fn poll_windows(&mut self) {
+        self.windows.poll();
+        for closed in self.windows.close_exited_shells() {
+            if self.layout_window == Some(closed.id) {
+                self.layout_window = None;
+            }
+            self.push_status(
+                format!("SHELL EXITED: {}", closed.title),
+                if closed.success {
+                    Tone::Normal
+                } else {
+                    Tone::Error
+                },
+            );
         }
     }
 
@@ -1297,6 +1677,12 @@ impl App {
             filter_editing: self.filter.is_some(),
         };
         hud::draw_hints(&self.renderer.fonts, &hints, self.time);
+        wm::render::draw(
+            &self.renderer.fonts,
+            &self.windows,
+            self.time,
+            self.layout_window,
+        );
 
         if self.mode == Mode::Console {
             hud::draw_console(&self.renderer.fonts, &self.console, self.time);
@@ -1304,7 +1690,7 @@ impl App {
 
         if self.show_debug {
             let debug = format!(
-                "DEBUG // F3\nframe {:.2} ms  fps {}\nnodes {}  visible {}  labels max 150\nscan {:.1} ms  tasks {}\nentries {}  errors {}\ncamera {:.1},{:.1},{:.1}\npost {}  locked {}",
+                "DEBUG // F3\nframe {:.2} ms  fps {}\nnodes {}  visible {}  labels max 150\nscan {:.1} ms  tasks {}\nentries {}  errors {}\nwindows {}  focus {}\ncamera {:.1},{:.1},{:.1}\npost {}  locked {}",
                 self.last_frame_ms,
                 get_fps(),
                 self.layout.nodes.len(),
@@ -1313,6 +1699,8 @@ impl App {
                 self.active_tasks.len(),
                 self.entries.len(),
                 self.entry_errors,
+                self.windows.len(),
+                self.windows.focused_id().is_some(),
                 self.camera.position.x,
                 self.camera.position.y,
                 self.camera.position.z,

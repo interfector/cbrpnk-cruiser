@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=CBRPNK//CRUISER
+Comment=Cyberpunk filesystem cruiser and shell launcher
+Exec=@BINDIR@/cbrpnk-cruiser-session
+TryExec=@BINDIR@/cbrpnk-cruiser-session
+Icon=utilities-terminal
+Terminal=false
+Categories=System;

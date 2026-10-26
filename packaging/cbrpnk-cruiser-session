@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "${HOME:-/}"
+exec "$self_dir/cbrpnk-cruiser" "$@"

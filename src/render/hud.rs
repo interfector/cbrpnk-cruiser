@@ -460,8 +460,8 @@ pub fn draw_hints(fonts: &Fonts, hints: &Hints, time: f32) {
     top += 18.0;
     for line in [
         "ENTER act  ·  TAB lock  ·  : console",
-        "T terminal  ·  F5 rescan  ·  ? help",
-        "WASD move  ·  arrows aim  ·  F freeze",
+        "T term  ·  Ctrl+T window  ·  ? help",
+        "WASD/arrows move  ·  F6 term  ·  F freeze",
     ] {
         fonts.draw(
             line,
@@ -617,7 +617,7 @@ pub fn draw_help(fonts: &Fonts) {
     let height = screen_height();
     draw_rectangle(0.0, 0.0, width, height, alpha(VOID, 0.94));
     let x = PAD * 2.0;
-    let column = (width - x * 2.0) / 3.0;
+    let column = (width - x * 2.0) / 4.0;
     let mut top = 48.0;
     fonts.draw(
         "CBRPNK//CRUISER  //  FLIGHT MANUAL",
@@ -639,7 +639,7 @@ pub fn draw_help(fonts: &Fonts) {
         Align::Left,
     );
     top += 34.0;
-    let sections: [(&str, &[&str]); 3] = [
+    let sections: [(&str, &[&str]); 4] = [
         (
             "NAVIGATION",
             &[
@@ -688,6 +688,24 @@ pub fn draw_help(fonts: &Fonts) {
                 "quit            exit application",
             ],
         ),
+        (
+            "TERMINAL WINDOWS",
+            &[
+                "Ctrl+T          shell in app window",
+                "Ctrl+Enter      run selection in window",
+                "F6              cycle window focus",
+                "F7              keyboard window layout",
+                "F12             release terminal focus",
+                "Shift+F12       close focused window",
+                "Shift+PgUp/Dn   scroll terminal output",
+                "Layout mode     arrows move / shift resize",
+                "Click title     focus / drag window",
+                "Click X         close window",
+                "Drag corner     resize window",
+                "Focused input   goes to the program",
+                "Unfocused       cruiser keys still work",
+            ],
+        ),
     ];
     for (index, (title, lines)) in sections.iter().enumerate() {
         let column_x = x + column * index as f32;
@@ -715,7 +733,7 @@ pub fn draw_help(fonts: &Fonts) {
             y += 20.0;
         }
     }
-    top += 260.0;
+    top += 300.0;
     fonts.draw(
         "Comfort: --no-crt disables post-processing. Use F to freeze motion.",
         x,

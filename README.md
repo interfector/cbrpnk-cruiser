@@ -1,7 +1,8 @@
 # CBRPNK//CRUISER
 
 A cyberpunk filesystem cruiser: fly through a real directory, inspect entries,
-and launch programs without leaving the world.
+and launch programs without leaving the world. In-app PTY terminal windows let
+you keep shells and TUI programs inside the cruiser.
 
 CBRPNK//CRUISER is a **read-only** browser and launcher. It does not edit,
 move, rename, or delete files. It is currently Linux-first.
@@ -43,6 +44,41 @@ cargo test
 cargo build --release
 ```
 
+## Install as a desktop session
+
+CBRPNK//CRUISER can appear in the display manager's session menu next to
+AwesomeWM, Sway, and other desktops. It is not an X11 window manager and does
+not manage other applications' top-level windows. It does manage its own
+in-app terminal windows. Selecting this session launches the cruiser directly
+as the session application, starting in `$HOME`.
+
+The session is an X11 session because the current Linux backend is X11.
+
+```sh
+cargo build --release
+sudo SKIP_BUILD=1 packaging/install-session.sh
+```
+
+The installer writes:
+
+```text
+/usr/local/bin/cbrpnk-cruiser
+/usr/local/bin/cbrpnk-cruiser-session
+/usr/share/xsessions/cbrpnk-cruiser.desktop
+```
+
+Log out, choose **CBRPNK//CRUISER** in the session menu, then log in. To
+uninstall, remove those three files.
+
+Use `PREFIX` for a different install prefix and `DESTDIR` for packaging:
+
+```sh
+sudo env PREFIX=/usr SKIP_BUILD=1 packaging/install-session.sh
+DESTDIR=/tmp/pkg SKIP_BUILD=1 packaging/install-session.sh
+```
+
+If you omit `SKIP_BUILD=1`, the installer runs `cargo build --release` itself.
+
 ## The sector
 
 Real directories become galaxies, sized by their immediate child count.
@@ -72,6 +108,13 @@ anything.
 | `Tab` | Toggle Lock mode; complete input in Console |
 | `Ctrl+Up` / `Ctrl+Down` | Adjust Console height |
 | `Enter` | Enter directory, launch executable, open file, or enter `PARENT` |
+| `Ctrl+T` | Open a shell in an in-app terminal window |
+| `Ctrl+Enter` | Run selection in a terminal window; directory opens a shell there |
+| `F6` | Cycle terminal-window focus |
+| `F7` | Keyboard window layout mode for the focused terminal |
+| `F12` | Release terminal focus |
+| `Shift+F12` | Close the focused terminal window |
+| `Shift+PageUp` / `PageDown` | Scroll the focused terminal's output |
 | `Backspace` or `H` | Parent directory |
 | `Home` or `~` | Home directory |
 | `/` | Filter the current sector |
@@ -120,9 +163,10 @@ A leading `!` explicitly opts into shell execution:
 ```
 
 Output from console commands is captured and shown in the console. Interactive
-programs should be run with `term`. `Tab` completes built-ins and the first
-path argument of `cd`, `ls`, `open`, `run`, and `term`; multiple matches are
-listed in the console. Use `Ctrl+Up` and `Ctrl+Down` to resize the console.
+programs should be run with `term`, or open a shell window with `Ctrl+T`.
+`Tab` completes built-ins and the first path argument of `cd`, `ls`, `open`,
+`run`, and `term`; multiple matches are listed in the console. Use `Ctrl+Up`
+and `Ctrl+Down` to resize the console.
 
 ## Configuration
 
@@ -141,7 +185,7 @@ font_scale = 1.0
 crt = true
 reduced_motion = false
 terminal = "foot"      # optional terminal override
-shell = "/bin/sh"      # used only by explicit ! commands
+shell = "/bin/sh"      # Ctrl+T shell and explicit ! commands
 theme = "default"
 log_level = "info"
 ```
@@ -154,6 +198,8 @@ log_level = "info"
 - Filenames are passed as arguments, never interpolated into a shell.
 - `run` requires the executable bit and reports the OS error on failure.
 - Console commands capture stdout/stderr up to 64 KiB.
+- In-app terminal windows run real PTY children; closing a window kills the
+  child. Terminal focus always has an explicit `F12` escape.
 - `--no-crt` and `reduced_motion` disable post-processing and reduce motion.
 - This interface has continuous camera movement. Stop if you feel discomfort.
 
@@ -164,7 +210,10 @@ log_level = "info"
 - External command names and arguments are not tab-completed; completion
   covers built-ins and their first path argument.
 - `.desktop` files are opened through the system handler, not parsed.
-- Windows is not yet a supported target.
+- In-app terminal windows track application cursor mode for TUI navigation,
+  but do not support PTY mouse reporting, clipboard integration, or arbitrary
+  GUI embedding.
+- Windows is not yet a supported target; terminal windows are Linux-tested.
 
 ## License
 

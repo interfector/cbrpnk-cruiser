@@ -58,7 +58,8 @@ world.
 5. `Enter` enters a directory, launches an executable, or opens a regular
    file with the system handler.
 6. `:` opens a command console for quick built-ins and program launches.
-7. `T` opens a real terminal in the current directory.
+7. `T` opens an external terminal; `Ctrl+T` opens a real PTY shell in an
+   in-app window.
 8. The user can go back to the parent, jump home, filter, rescan, or quit.
 
 ### 2.3 Success criteria
@@ -79,7 +80,7 @@ world.
 Do not implement these unless the human explicitly expands the scope:
 
 - File editing, move/copy/delete/rename, or trash management.
-- A full terminal emulator or PTY.
+- Embedding arbitrary GUI applications inside the world.
 - Recursive indexing of the entire disk at startup.
 - Network access, cloud sync, telemetry, accounts, or plugins.
 - Thumbnails, media playback, or an embedded browser.
@@ -87,9 +88,10 @@ Do not implement these unless the human explicitly expands the scope:
   iced), or a web front end.
 - Windows-specific polish before Linux is solid.
 
-The app is **read-only** in v1: browse, inspect, launch, and open. If file
-mutation is added later, it must be a separate, confirmed feature with its own
-tests and safety design.
+The app is **read-only** in v1: browse, inspect, launch, and open. An in-app
+shell can do whatever the user explicitly types into it, but the cruiser itself
+never mutates files. If built-in file mutation is added later, it must be a
+separate, confirmed feature with its own tests and safety design.
 
 ---
 
@@ -242,6 +244,13 @@ codes so non-US keyboard layouts work.
 | Mouse wheel | Adjust cruise speed, not camera FOV |
 | `Tab` | Toggle Lock mode / cycle focus; completes input in Console |
 | `Ctrl+Up` / `Ctrl+Down` | Increase / decrease Console height |
+| `Ctrl+T` | Open a PTY shell in an in-app terminal window |
+| `Ctrl+Enter` | Run selection in a terminal window; directory opens a shell there |
+| `F6` | Cycle terminal-window focus |
+| `F7` | Toggle keyboard window layout mode for the focused terminal |
+| `F12` | Release terminal focus back to the cruiser |
+| `Shift+F12` | Close the focused terminal window |
+| `Shift+PageUp` / `Shift+PageDown` | Scroll the focused terminal's output |
 | `J` / `K` | Previous / next node in the current sector |
 | `Enter` | Context action: enter directory, launch executable, open file |
 | `Backspace` or `H` | Go to parent directory |
@@ -262,12 +271,26 @@ codes so non-US keyboard layouts work.
 Mouse clicks never launch anything. Steering is pointer-driven: mouse motion
 arms the joystick-style pointer, and focus follows the reticle at screen
 center. The pointer only steers while it is inside the window. Do not capture
-or hide the OS pointer by default.
+or hide the OS pointer by default. Clicking a terminal window focuses it;
+dragging its title moves it, dragging the lower-right corner resizes it, and
+clicking `X` closes it and terminates the child process.
+
+While a terminal window has focus, every key except the reserved focus/layout
+and scrollback chords (`F6`, `F7`, `F12`, `Shift+F12`, `Shift+PageUp`,
+`Shift+PageDown`) is sent to the PTY. In window layout mode, arrows move the
+focused window and `Shift`+arrows resize it; `F7`, `Enter`, or `Esc` exits
+layout mode. Press `F12` to return to cruiser controls. This modal escape
+hatch is mandatory: a TUI may use `Esc`, `Ctrl+Q`, function keys, or almost any
+other chord itself.
 
 In unlocked Cruise, flying inside a readable directory's galaxy radius enters
 that sector automatically. Flying into the parent gate returns to the parent
 directory. Lock mode and filters disable proximity entry so inspection cannot
 trigger navigation; use `Enter` while locked.
+
+Terminal-window focus is a Cruise sub-mode, not a separate top-level mode. It
+does not change the sector or camera; it only routes keyboard input to the
+focused PTY. Releasing focus restores cruiser shortcuts immediately.
 
 ### 4.3 Focus and selection
 
@@ -299,9 +322,10 @@ trigger navigation; use `Enter` while locked.
 | Broken symlink | Show a fault, keep the entry visible |
 
 `O` always asks the system handler to open the path, regardless of executable
-bit. `T` opens a terminal at the current directory (or at a selected
-directory's path). `Enter` must never pass untrusted filenames through a
-shell.
+bit. `T` opens an external terminal at the current directory (or at a selected
+directory's path). `Ctrl+Enter` opens an in-app PTY window: an executable runs
+directly in it, a directory opens a shell there, and other entries are
+refused. `Enter` must never pass untrusted filenames through a shell.
 
 ### 4.5 Command console
 
@@ -337,8 +361,8 @@ Rules:
   block the render loop. Bound the buffer (for example 64 KiB) and mark
   truncation.
 - Interactive programs need a terminal. If output stalls or the program
-  appears to need a TTY, tell the user to use `term`; do not invent a PTY in
-  v1.
+  appears to need a TTY, tell the user to use `term` or `Ctrl+T`; do not make
+  console commands allocate a PTY automatically.
 - `run` must check the executable bit on Unix. On other platforms use the
   platform's executable detection. If it is not executable, refuse and
   suggest `open` or `term`.
@@ -388,6 +412,8 @@ Use Rust with:
 - `anyhow` + `thiserror` for errors.
 - `shell-words` for command parsing.
 - `log` + `env_logger` for logging.
+- `portable-pty` for cross-platform PTY sessions in terminal windows.
+- `vt100` for bounded VT100/xterm screen emulation.
 - `tempfile` as a dev-dependency for filesystem tests.
 
 Do not add Bevy, egui, iced, winit directly, tokio, async-std, or a web
@@ -405,6 +431,10 @@ LICENSE
 assets/
   fonts/            # bundled OFL font + license
   shaders/          # world, bloom, CRT shaders
+packaging/
+  cbrpnk-cruiser.desktop.in  # display-manager session entry
+  cbrpnk-cruiser-session     # session launcher, starts in $HOME
+  install-session.sh         # installs binary, launcher, session entry
 src/
   main.rs           # thin entry point
   lib.rs            # library root for testable modules
@@ -430,7 +460,12 @@ src/
     command.rs      # console parser + built-ins
     complete.rs     # console tab completion
     process.rs      # spawn/detach/capture
-    terminal.rs     # terminal detection/adapters
+    terminal.rs     # external terminal detection/adapters
+  wm/
+    mod.rs          # terminal windows, focus, geometry, lifecycle
+    pty.rs          # PTY worker threads and events
+    input.rs        # key encoding for PTY input
+    render.rs       # terminal cell/window rendering
   util.rs           # stable hashing, path display, formatting
 tests/
   fs_scan.rs
@@ -591,6 +626,13 @@ matters, but do not contort the design prematurely. Embedded shaders via
   testable without spawning.
 - Detached GUI launches use null stdin/stdout/stderr or a log file, and do
   not block. Console commands use captured pipes read by threads.
+- In-app terminal windows use `portable-pty` with `vt100` emulation. Reader,
+  writer, and child-wait work runs on worker threads; the render thread only
+  polls events, processes bounded terminal output, and sends resize/keystroke
+  messages. Closing a window kills the child. Keep scrollback bounded.
+- `Ctrl+T` and `Ctrl+Enter` launch only on explicit keypress. PTY commands
+  preserve `OsString` paths and argv; no shell interpolation or shell mode is
+  added implicitly.
 - Terminal detection order: config override, `$TERMINAL`, then common
   terminals (`wezterm`, `kitty`, `alacritty`, `foot`, `gnome-terminal`,
   `konsole`, `xfce4-terminal`, `xterm`). Search `PATH` explicitly. Each
@@ -601,7 +643,10 @@ matters, but do not contort the design prematurely. Embedded shaders via
 - If no terminal or opener exists, report a clear error. Do not silently do
   nothing.
 - PID and exit status should be visible in the console. For detached
-  programs, report "launched" rather than waiting forever.
+  programs, report "launched" rather than waiting forever. In-app terminal
+  shell windows close when the shell exits; directly launched program windows
+  show running/exited/IO-error state in the title bar and retain the final
+  screen for inspection.
 
 ### 5.9 Config
 
@@ -620,9 +665,12 @@ matters, but do not contort the design prematurely. Embedded shaders via
 
 ### 5.10 Accessibility and comfort
 
-- Every action must have a keyboard path.
+- Every action must have a keyboard path. Terminal windows expose focus,
+  cycle, close, scrollback, move, and resize without a mouse.
 - Provide `--no-crt` and `reduced_motion`; respect them in shaders, camera
   damping, and transitions.
+- Terminal focus must always have an unambiguous keyboard escape (`F12`) so a
+  TUI cannot trap the user.
 - Color is never the only indicator. Shapes, brackets, and text labels carry
   meaning too.
 - Font scale must be adjustable without breaking the HUD.
@@ -658,6 +706,18 @@ cargo build --release
 
 Use `RUST_LOG=cbrpnk_cruiser=debug cargo run` for diagnostics. Do not leave
 `dbg!` output in committed code.
+
+Install as an X11 display-manager session with:
+
+```sh
+cargo build --release
+sudo SKIP_BUILD=1 packaging/install-session.sh
+```
+
+The installer places the binary and session launcher in `$PREFIX/bin`
+(default `/usr/local/bin`) and the session entry in
+`/usr/share/xsessions`. It is a session entry like AwesomeWM or Sway, not an
+X11 window manager; the cruiser manages only its in-app terminal windows.
 
 ### 6.3 CI expectation
 
@@ -779,6 +839,21 @@ checks green.
   handler, open a real terminal at the current directory, and see success or
   a clear error for each.
 
+### M5.5 - In-app terminal windows (explicit scope expansion)
+
+- PTY shell and direct executable windows using `portable-pty` + `vt100`.
+- Modal terminal focus with `F12` release, `F6` cycle, `F7` keyboard layout,
+  `Shift+F12` close, and `Shift+PageUp/Down` scrollback.
+- Mouse focus, drag, resize, and close; title-bar running/exited status.
+- Application cursor keys are tracked so TUIs such as `htop` receive the
+  correct arrow sequences.
+- Shell windows close automatically when the shell exits; launched program
+  windows retain their final screen.
+- Acceptance: run a shell, `vim`, and `htop` in windows; all keys including
+  `Esc`, `Ctrl+Q`, and arrows reach the TUI while focused; `F12` restores
+  cruiser keys; closing a window terminates its child; no render-thread
+  blocking.
+
 ### M6 - Polish and ship
 
 - Complete config, help overlay, README, license and asset credits.
@@ -802,9 +877,13 @@ polish, desktop-entry handling, custom themes, plugin API.
   (Unix). Assert that no test touches the real home directory.
 - **Process tests**: use temp shell scripts or `/bin/echo` to verify argv,
   cwd, and error paths. Never run `rm`, `mv`, or anything destructive.
+- **PTY tests**: spawn harmless commands such as `/bin/echo` in a PTY and
+  assert output, exit status, and resize behavior. Time out instead of
+  blocking forever; clean up children.
 - **Manual smoke test**: start in `/`, `$HOME`, and a deep project directory;
   enter/leave, toggle hidden, filter, rescan, open a text file, launch a
-  script, open a terminal, quit.
+  script, open a terminal, quit. Open an in-app shell, run `vim` and `htop`,
+  verify focus/release, scrollback, layout mode, resize, and close.
 - **Performance check**: debug overlay with a large but safe temp directory;
   verify frame time and scan responsiveness.
 - Do not add brittle screenshot tests in v1. Visual review is manual until
