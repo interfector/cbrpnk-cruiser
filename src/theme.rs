@@ -48,9 +48,58 @@ pub const GALAXY_COUNT_REFERENCE: f32 = 512.0;
 pub const GALAXY_ORBIT_SEGMENTS: usize = 40;
 pub const MAX_GALAXIES: usize = 96;
 pub const MAX_DIRECTORY_COUNTS: usize = 128;
-pub const AUTO_ENTER_FACTOR: f32 = 0.78;
+pub const AUTO_ENTER_FACTOR: f32 = 0.5;
 pub const AUTO_ENTER_GUARD: f32 = 1.25;
 pub const PARENT_GATE_ENTRY_RADIUS: f32 = 1.1;
+
+#[derive(Clone, Copy)]
+pub struct SectorBand {
+    pub inner_radius: f32,
+    pub outer_radius: f32,
+    pub height_center: f32,
+    pub height_scale: f32,
+}
+
+pub const SECTOR_BANDS: [SectorBand; 5] = [
+    SectorBand {
+        inner_radius: 2.4,
+        outer_radius: 5.6,
+        height_center: 4.8,
+        height_scale: 0.9,
+    },
+    SectorBand {
+        inner_radius: 4.4,
+        outer_radius: 8.4,
+        height_center: 5.0,
+        height_scale: 0.65,
+    },
+    SectorBand {
+        inner_radius: 6.2,
+        outer_radius: 11.8,
+        height_center: 5.2,
+        height_scale: 0.5,
+    },
+    SectorBand {
+        inner_radius: 9.0,
+        outer_radius: 15.2,
+        height_center: 5.4,
+        height_scale: 0.4,
+    },
+    SectorBand {
+        inner_radius: 12.0,
+        outer_radius: 18.0,
+        height_center: 5.6,
+        height_scale: 0.34,
+    },
+];
+
+pub const SECTOR_RINGS: [(f32, f32, f32); 5] = [
+    (2.8, 4.0, 0.16),
+    (5.6, 4.8, -0.12),
+    (9.2, 5.6, 0.18),
+    (13.2, 6.4, -0.10),
+    (17.4, 7.0, 0.12),
+];
 
 pub const FOV_Y: f32 = 64.0_f32.to_radians();
 pub const NEAR_PLANE: f32 = 0.18;

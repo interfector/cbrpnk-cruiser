@@ -139,7 +139,8 @@ has a parent. It is not shown at `/`.
 Unlocked Cruise automatically enters a readable directory when you fly inside
 its galaxy, and returns to the parent when you fly into the `PARENT` gate. Lock
 mode, freeze, filters, and open scans disable proximity entry; use `Enter`
-while locked.
+while locked. Set `auto_enter = false` to require `Enter` for both actions, or
+lower `auto_enter_factor` to make directory entry stricter.
 
 ## Console
 
@@ -185,6 +186,8 @@ console_min_lines = 4    # Ctrl+Down lower bound
 console_max_lines = 24   # Ctrl+Up upper bound, raise for a taller Console
 font_scale = 1.0
 unfocused_opacity = 0.70 # unfocused terminal window opacity (0.0-1.0)
+auto_enter = true        # false disables proximity entry; use Enter
+auto_enter_factor = 0.5  # directory entry radius, fraction of galaxy radius
 auto_hide_mouse = true   # hide pointer except when a terminal is focused
 open_with_system = true  # false masks O and Enter's system-open action
 enter_shell = false      # true makes Enter open an in-app shell
@@ -199,6 +202,11 @@ log_level = "info"
 `--no-crt` overrides `crt = true`. The hyphenated
 `auto-hide-mouse = true` spelling is also accepted. `unfocused_opacity`
 applies to unfocused in-app terminal windows and their text.
+
+`auto_enter = false` disables automatic proximity navigation for directories
+and the parent gate. `auto_enter_factor` is clamped to 0.0-1.0; it scales the
+directory entry radius relative to the galaxy radius. A factor of `0.0`
+disables directory entry while leaving the parent gate active.
 
 Set `open_with_system = false` to mask `O` and Enter's system-open action for
 regular files. Set `enter_shell = true` to make Enter open an in-app shell

@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use crate::theme::{CONSOLE_LINES, CONSOLE_MAX_LINES, CONSOLE_MIN_LINES, WM_UNFOCUSED_OPACITY};
+use crate::theme::{
+    AUTO_ENTER_FACTOR, CONSOLE_LINES, CONSOLE_MAX_LINES, CONSOLE_MIN_LINES, WM_UNFOCUSED_OPACITY,
+};
 
 const CONSOLE_HARD_MIN: usize = 2;
 const CONSOLE_HARD_MAX: usize = 64;
@@ -19,6 +21,8 @@ pub struct Config {
     pub console_max_lines: usize,
     pub font_scale: f32,
     pub unfocused_opacity: f32,
+    pub auto_enter: bool,
+    pub auto_enter_factor: f32,
     #[serde(alias = "auto-hide-mouse")]
     pub auto_hide_mouse: bool,
     pub open_with_system: bool,
@@ -43,6 +47,8 @@ impl Default for Config {
             console_max_lines: CONSOLE_MAX_LINES,
             font_scale: 1.0,
             unfocused_opacity: WM_UNFOCUSED_OPACITY,
+            auto_enter: true,
+            auto_enter_factor: AUTO_ENTER_FACTOR,
             auto_hide_mouse: true,
             open_with_system: true,
             enter_shell: false,
@@ -144,6 +150,19 @@ pub fn validate(mut config: Config) -> (Config, Option<String>) {
             config.unfocused_opacity
         ));
         config.unfocused_opacity = opacity;
+    }
+    if !config.auto_enter_factor.is_finite() {
+        warnings.push(format!(
+            "auto_enter_factor is not finite, using {AUTO_ENTER_FACTOR}"
+        ));
+        config.auto_enter_factor = AUTO_ENTER_FACTOR;
+    } else if !(0.0..=1.0).contains(&config.auto_enter_factor) {
+        let factor = config.auto_enter_factor.clamp(0.0, 1.0);
+        warnings.push(format!(
+            "auto_enter_factor {} clamped to {factor}",
+            config.auto_enter_factor
+        ));
+        config.auto_enter_factor = factor;
     }
     if config.theme != "default" {
         warnings.push(format!("unknown theme {:?}, using default", config.theme));
@@ -293,6 +312,47 @@ mod tests {
         assert!(!loaded.config.open_with_system);
         assert!(loaded.config.enter_shell);
         assert!(loaded.warning.is_none());
+    }
+
+    #[test]
+    fn configures_auto_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "auto_enter = false\nauto_enter_factor = 0.25\n").unwrap();
+        let loaded = load(Some(&path));
+        assert!(!loaded.config.auto_enter);
+        assert_eq!(loaded.config.auto_enter_factor, 0.25);
+        assert!(loaded.warning.is_none());
+    }
+
+    #[test]
+    fn clamps_auto_enter_factor() {
+        let config = Config {
+            auto_enter_factor: 3.0,
+            ..Config::default()
+        };
+        let (config, warning) = validate(config);
+        assert_eq!(config.auto_enter_factor, 1.0);
+        assert!(warning.is_some());
+
+        let config = Config {
+            auto_enter_factor: -1.0,
+            ..Config::default()
+        };
+        let (config, warning) = validate(config);
+        assert_eq!(config.auto_enter_factor, 0.0);
+        assert!(warning.is_some());
+    }
+
+    #[test]
+    fn replaces_non_finite_auto_enter_factor() {
+        let config = Config {
+            auto_enter_factor: f32::NAN,
+            ..Config::default()
+        };
+        let (config, warning) = validate(config);
+        assert_eq!(config.auto_enter_factor, AUTO_ENTER_FACTOR);
+        assert!(warning.is_some());
     }
 
     #[test]

@@ -7,17 +7,9 @@ use crate::fs::{Entry, EntryKind};
 use crate::theme::{
     AUTO_ENTER_FACTOR, GALAXY_COUNT_REFERENCE, GALAXY_RADIUS_DEFAULT, GALAXY_RADIUS_MAX,
     GALAXY_RADIUS_MIN, NODE_DIR_RADIUS, NODE_EXEC_RADIUS, NODE_FILE_RADIUS, NODE_LINK_RADIUS,
-    NODE_OTHER_RADIUS,
+    NODE_OTHER_RADIUS, SECTOR_BANDS,
 };
 use crate::util::{normalize_path, path_hash};
-
-const GROUP_BANDS: [(f32, f32, f32, f32); 5] = [
-    (2.35, 1.45, 0.10, 1.70),
-    (3.55, 1.35, 0.45, 1.50),
-    (4.70, 2.20, -0.30, 2.30),
-    (6.20, 2.00, 0.70, 2.10),
-    (7.60, 1.40, 0.20, 1.90),
-];
 
 #[derive(Debug, Clone)]
 pub struct Node {
@@ -141,7 +133,11 @@ impl SectorLayout {
         &self,
         entries: &'a [Entry],
         position: Vec3,
+        factor: f32,
     ) -> Option<&'a Entry> {
+        if factor <= 0.0 {
+            return None;
+        }
         let mut nearest: Option<(f32, &Entry)> = None;
         for node in &self.nodes {
             let Some(entry) = entries.get(node.entry_index) else {
@@ -151,7 +147,7 @@ impl SectorLayout {
                 continue;
             }
             let distance = position.distance(node.position);
-            if distance > auto_enter_radius(node) {
+            if distance > auto_enter_radius_with_factor(node, factor) {
                 continue;
             }
             if nearest
@@ -182,21 +178,32 @@ pub fn galaxy_radius(node: &Node) -> f32 {
 }
 
 pub fn auto_enter_radius(node: &Node) -> f32 {
-    galaxy_radius(node) * AUTO_ENTER_FACTOR
+    auto_enter_radius_with_factor(node, AUTO_ENTER_FACTOR)
+}
+
+pub fn auto_enter_radius_with_factor(node: &Node, factor: f32) -> f32 {
+    galaxy_radius(node) * factor
 }
 
 fn position_for(entry: &Entry) -> Vec3 {
-    let group = group_of(entry);
+    let band = SECTOR_BANDS[group_of(entry)];
     let hash = path_hash(&entry.path);
-    let (base_radius, radius_spread, base_height, height_spread) = GROUP_BANDS[group];
     let angle = hash_unit(hash, 0) * std::f32::consts::TAU;
-    let radius = base_radius + hash_unit(hash, 17) * radius_spread;
-    let height = base_height + hash_unit(hash, 33) * height_spread;
-    vec3(angle.cos() * radius, height, angle.sin() * radius)
+    let latitude = hash_unit(hash, 1) * 2.0 - 1.0;
+    let radius = band.inner_radius + hash_unit(hash, 2) * (band.outer_radius - band.inner_radius);
+    vec3(
+        angle.cos() * radius,
+        band.height_center + latitude * radius * band.height_scale,
+        angle.sin() * radius,
+    )
 }
 
-fn hash_unit(hash: u64, shift: u32) -> f32 {
-    (hash.rotate_left(shift) & 0xffff) as f32 / u16::MAX as f32
+fn hash_unit(hash: u64, salt: u64) -> f32 {
+    let mut value = hash.wrapping_add(salt.wrapping_mul(0x9e37_79b9_7f4a_7c15));
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^= value >> 31;
+    (value & 0xffff) as f32 / u16::MAX as f32
 }
 
 fn directory_galaxy_radius(child_count: Option<usize>) -> f32 {
@@ -392,16 +399,38 @@ mod tests {
         let layout = SectorLayout::build(&entries, &[0, 1, 2, 3, 4]);
         assert_eq!(
             layout
-                .proximity_directory(&entries, layout.nodes[0].position)
+                .proximity_directory(&entries, layout.nodes[0].position, AUTO_ENTER_FACTOR)
                 .map(|entry| entry.name.as_os_str()),
             Some(std::ffi::OsStr::new("dir"))
         );
         assert!(layout
-            .proximity_directory(&entries, layout.nodes[0].position + vec3(2.0, 0.0, 0.0))
+            .proximity_directory(
+                &entries,
+                layout.nodes[0].position + vec3(2.0, 0.0, 0.0),
+                AUTO_ENTER_FACTOR,
+            )
             .is_none());
         entries[0].readable = false;
         assert!(layout
-            .proximity_directory(&entries, layout.nodes[0].position)
+            .proximity_directory(&entries, layout.nodes[0].position, AUTO_ENTER_FACTOR)
+            .is_none());
+    }
+
+    #[test]
+    fn auto_enter_factor_controls_proximity_radius() {
+        let entries = sample();
+        let layout = SectorLayout::build(&entries, &[0, 1, 2, 3, 4]);
+        let node = &layout.nodes[0];
+        let narrow = auto_enter_radius_with_factor(node, 0.25);
+        let wide = auto_enter_radius_with_factor(node, 0.5);
+        assert!(narrow < wide);
+        let between = node.position + vec3((narrow + wide) * 0.5, 0.0, 0.0);
+        assert!(layout.proximity_directory(&entries, between, 0.5).is_some());
+        assert!(layout
+            .proximity_directory(&entries, between, 0.25)
+            .is_none());
+        assert!(layout
+            .proximity_directory(&entries, node.position, 0.0)
             .is_none());
     }
 
@@ -412,6 +441,75 @@ mod tests {
         let directory = &layout.nodes[0];
         assert!(galaxy_radius(directory) > directory.radius);
         assert!(auto_enter_radius(directory) < galaxy_radius(directory));
+        assert!(auto_enter_radius(directory) <= galaxy_radius(directory) * 0.55);
+    }
+
+    #[test]
+    fn directories_fill_a_broad_multi_level_shell() {
+        let entries: Vec<Entry> = (0..320)
+            .map(|index| {
+                entry(
+                    &format!("folder-{index:03}"),
+                    EntryKind::Directory,
+                    false,
+                    0,
+                )
+            })
+            .collect();
+        let visible: Vec<usize> = (0..entries.len()).collect();
+        let layout = SectorLayout::build(&entries, &visible);
+        let band = SECTOR_BANDS[0];
+        let mut min_radius = f32::MAX;
+        let mut max_radius = 0.0_f32;
+        let mut min_height = f32::MAX;
+        let mut max_height = f32::MIN;
+
+        for node in &layout.nodes {
+            let radius = node.position.x.hypot(node.position.z);
+            assert!(radius >= band.inner_radius - 0.001);
+            assert!(radius <= band.outer_radius + 0.001);
+            assert!(node.position.y > -0.75);
+            min_radius = min_radius.min(radius);
+            max_radius = max_radius.max(radius);
+            min_height = min_height.min(node.position.y);
+            max_height = max_height.max(node.position.y);
+        }
+
+        assert!(max_radius - min_radius > 1.8);
+        assert!(max_height - min_height > 4.0);
+    }
+
+    #[test]
+    fn similar_names_do_not_collapse_into_one_position() {
+        let entries: Vec<Entry> = (1..=30)
+            .map(|index| {
+                entry(
+                    &format!("folder-{index:03}"),
+                    EntryKind::Directory,
+                    false,
+                    0,
+                )
+            })
+            .collect();
+        let visible: Vec<usize> = (0..entries.len()).collect();
+        let layout = SectorLayout::build(&entries, &visible);
+        let mut closest = f32::MAX;
+        let mut nearest_sum = 0.0;
+
+        for (index, node) in layout.nodes.iter().enumerate() {
+            let mut nearest = f32::MAX;
+            for other in &layout.nodes[..index] {
+                let distance = node.position.distance(other.position);
+                closest = closest.min(distance);
+                nearest = nearest.min(distance);
+            }
+            if nearest.is_finite() {
+                nearest_sum += nearest;
+            }
+        }
+
+        assert!(closest > 0.3, "closest={closest}");
+        assert!(nearest_sum / layout.nodes.len() as f32 > 1.2);
     }
 
     #[test]

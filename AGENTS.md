@@ -289,7 +289,9 @@ other chord itself.
 In unlocked Cruise, flying inside a readable directory's galaxy radius enters
 that sector automatically. Flying into the parent gate returns to the parent
 directory. Lock mode and filters disable proximity entry so inspection cannot
-trigger navigation; use `Enter` while locked.
+trigger navigation; use `Enter` while locked. `auto_enter = false` disables
+both proximity actions, and `auto_enter_factor` scales the directory entry
+radius.
 
 Terminal-window focus is a Cruise sub-mode, not a separate top-level mode. It
 does not change the sector or camera; it only routes keyboard input to the
@@ -597,8 +599,10 @@ Do not use array indices as identity across rescans.
 - Unlocked Cruise automatically enters a readable directory when the camera
   crosses its galaxy entry radius, and returns to the parent when the camera
   reaches the parent gate. Apply a short post-navigation guard, recenter on
-  arrival, and never auto-enter while locked, frozen, filtering, scanning, or
-  holding a pending navigation.
+  arrival, and never auto-enter while locked, frozen, filtering, scanning,
+  holding a pending navigation, or when `auto_enter` is false. The entry radius
+  is the galaxy radius times `auto_enter_factor`; a factor of 0.0 disables
+  directory entry while leaving the parent gate active.
 - Damping and acceleration prevent twitchy motion. Cap velocity in the
   sector and across sector transitions.
 - `R` recenters; `F` freezes. Do not add camera shake by default.
@@ -666,14 +670,17 @@ matters, but do not contort the design prematurely. Embedded shaders via
   not a crash.
 - Suggested settings: `start_path`, `show_hidden`, `max_entries`,
   `console_lines`, `console_min_lines`, `console_max_lines`, `font_scale`,
-  `unfocused_opacity`, `auto_hide_mouse` (default true), `crt`,
-  `reduced_motion`, `terminal`, `shell`, `confirm_exec` (default false),
-  `theme`, and log level. `auto-hide-mouse` is accepted as an alias.
+  `unfocused_opacity`, `auto_enter` (default true), `auto_enter_factor`
+  (default 0.5), `auto_hide_mouse` (default true), `crt`, `reduced_motion`,
+  `terminal`, `shell`, `confirm_exec` (default false), `theme`, and log level.
+  `auto-hide-mouse` is accepted as an alias.
   `open_with_system` defaults to true; false masks `O` and Enter's
   system-open action for regular files. `enter_shell` defaults to false;
   true makes Enter open an in-app shell at the selected location.
 - `unfocused_opacity` is clamped to 0.0-1.0 and controls the panel and text
-  opacity of unfocused in-app terminal windows.
+  opacity of unfocused in-app terminal windows. `auto_enter_factor` is clamped
+  to 0.0-1.0; false `auto_enter` disables proximity navigation for directories
+  and the parent gate.
 - Keep all user-visible defaults documented in `README.md` and in `--help`.
 - Do not write the config file unless the user explicitly saves settings.
 - CLI: `cbrpnk-cruiser [PATH]`, `--no-crt`, `--hidden`, `--config <path>`,

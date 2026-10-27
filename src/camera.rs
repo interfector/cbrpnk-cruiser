@@ -198,4 +198,13 @@ mod tests {
         camera.recenter();
         assert_eq!(camera.position, start);
     }
+
+    #[test]
+    fn start_is_outside_the_directory_entry_shell() {
+        let camera = Camera::new();
+        let horizontal = vec2(camera.position.x, camera.position.z).length();
+        let entry_reach = crate::theme::SECTOR_BANDS[0].outer_radius
+            + crate::theme::GALAXY_RADIUS_MAX * crate::theme::AUTO_ENTER_FACTOR;
+        assert!(horizontal > entry_reach);
+    }
 }

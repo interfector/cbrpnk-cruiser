@@ -16,10 +16,9 @@ use crate::input::{self, Intent};
 use crate::launch::command::{self, Builtin, Command};
 use crate::launch::complete;
 use crate::launch::process::{
-    plan_executable, plan_external, plan_open, plan_shell, plan_terminal, spawn_detached,
-    LaunchEvent, LaunchWorker, OutputStream,
+    plan_executable, plan_external, plan_open, plan_shell, spawn_detached, LaunchEvent,
+    LaunchWorker, OutputStream,
 };
-use crate::launch::terminal::detect as detect_terminal;
 use crate::layout::SectorLayout;
 use crate::render::hud::{self, ConsoleState, Hints, StatusMessage, Tone, TopHud};
 use crate::render::scene::{parent_gate_position, parent_gate_reached, Scene};
@@ -277,7 +276,8 @@ impl App {
     }
 
     fn try_auto_enter(&mut self) -> bool {
-        if self.locked
+        if !self.config.auto_enter
+            || self.locked
             || self.camera.frozen
             || self.scanning
             || self.pending_nav.is_some()
@@ -297,10 +297,11 @@ impl App {
             }
         }
 
-        let Some(entry) = self
-            .layout
-            .proximity_directory(&self.entries, self.camera.position)
-        else {
+        let Some(entry) = self.layout.proximity_directory(
+            &self.entries,
+            self.camera.position,
+            self.config.auto_enter_factor,
+        ) else {
             return false;
         };
         let path = entry.path.clone();
@@ -916,6 +917,25 @@ impl App {
             },
             Builtin::Open(path) => {
                 let target = self.resolve_path(&path.to_string_lossy());
+                if target.is_dir() {
+                    if !target
+                        .metadata()
+                        .map(|m| m.is_dir())
+                        .unwrap_or(target.is_dir())
+                    {
+                        self.push_status(
+                            format!("NOT A DIRECTORY: {}", target.display()),
+                            Tone::Error,
+                        );
+                        self.console.push(
+                            format!("NOT A DIRECTORY: {}", target.display()),
+                            Tone::Error,
+                        );
+                        return;
+                    }
+                    self.open_shell_window(target);
+                    return;
+                }
                 self.open_path(&target);
             }
             Builtin::Run { path, args } => {
@@ -931,7 +951,7 @@ impl App {
             }
             Builtin::Term(path) => {
                 let target = path.map(|path| self.resolve_path(&path));
-                self.start_terminal(target);
+                self.start_terminal_in_window(target);
             }
             Builtin::Reload => {
                 self.rescan();
@@ -1396,7 +1416,7 @@ impl App {
         }
     }
 
-    fn start_terminal(&mut self, directory: Option<PathBuf>) {
+    fn start_terminal_in_window(&mut self, directory: Option<PathBuf>) {
         let selected_dir = if self.selected_is_parent() {
             self.cwd.parent().map(Path::to_path_buf)
         } else {
@@ -1407,31 +1427,7 @@ impl App {
         let target = directory
             .or(selected_dir)
             .unwrap_or_else(|| self.cwd.clone());
-        if !target.is_dir() {
-            let message = format!("NOT A DIRECTORY: {}", target.display());
-            self.push_status(message.clone(), Tone::Error);
-            self.console.push(message, Tone::Error);
-            return;
-        }
-        let Some(terminal) = detect_terminal(self.config.terminal.as_deref(), &target) else {
-            let message = "NO TERMINAL FOUND: set terminal in config or $TERMINAL".to_string();
-            self.push_status(message.clone(), Tone::Error);
-            self.console.push(message, Tone::Error);
-            return;
-        };
-        let plan = plan_terminal(terminal);
-        match spawn_detached(&plan) {
-            Ok(pid) => {
-                let message = format!("TERMINAL PID {pid} AT {}", target.display());
-                self.push_status(message.clone(), Tone::Success);
-                self.console.push(message, Tone::Success);
-            }
-            Err(error) => {
-                let message = format!("TERMINAL FAILED: {error}");
-                self.push_status(message.clone(), Tone::Error);
-                self.console.push(message, Tone::Error);
-            }
-        }
+        self.open_shell_window(target);
     }
 
     fn toggle_lock(&mut self) {

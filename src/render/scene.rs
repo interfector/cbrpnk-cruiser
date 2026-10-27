@@ -11,7 +11,7 @@ use crate::layout::{galaxy_radius, Node, SectorLayout};
 use crate::render::text::{Align, Fonts};
 use crate::theme::{
     alpha, AMBER, CYAN, CYAN_DIM, FONT_SMALL, FONT_TINY, GALAXY_ORBIT_SEGMENTS, GRID_DIM, ICE,
-    MAGENTA, MAX_GALAXIES, MAX_VISIBLE_LABELS, PARENT_GATE_ENTRY_RADIUS, TEXT_MUTED,
+    MAGENTA, MAX_GALAXIES, MAX_VISIBLE_LABELS, PARENT_GATE_ENTRY_RADIUS, SECTOR_RINGS, TEXT_MUTED,
 };
 use crate::util::path_hash;
 
@@ -128,15 +128,18 @@ impl Scene<'_> {
     }
 
     fn draw_rings(&self, width: f32, height: f32) {
-        let rings: [(f32, f32); 4] = [(2.4, 0.1), (3.6, 0.9), (4.8, 0.0), (6.0, 1.4)];
-        for (index, (radius, y)) in rings.iter().enumerate() {
-            let segments = 72;
-            let color = alpha(CYAN_DIM, if index == 0 { 0.28 } else { 0.13 });
+        for (index, (radius, center_y, tilt)) in SECTOR_RINGS.iter().enumerate() {
+            let segments = 96;
+            let color = alpha(CYAN_DIM, if index == 0 { 0.28 } else { 0.11 });
+            let (tilt_sin, tilt_cos) = tilt.sin_cos();
             let mut previous: Option<Projected> = None;
             for segment in 0..=segments {
                 let angle = segment as f32 / segments as f32 * std::f32::consts::TAU;
-                let point =
-                    macroquad::prelude::vec3(angle.cos() * radius, *y, angle.sin() * radius);
+                let point = macroquad::prelude::vec3(
+                    angle.cos() * radius,
+                    center_y + angle.sin() * radius * tilt_sin,
+                    angle.sin() * radius * tilt_cos,
+                );
                 let projected = self.camera.project(point, width, height);
                 if let (Some(from), Some(to)) = (previous, projected) {
                     let alpha = (1.0 - from.depth / 80.0).clamp(0.03, 1.0);
