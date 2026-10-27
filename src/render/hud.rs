@@ -110,6 +110,12 @@ pub struct StatusMessage {
 }
 
 #[derive(Debug, Clone)]
+pub struct HandshakeLine {
+    pub text: String,
+    pub age: f32,
+}
+
+#[derive(Debug, Clone)]
 pub struct TopHud<'a> {
     pub cwd: &'a Path,
     pub sector_name: &'a str,
@@ -609,6 +615,39 @@ pub fn draw_console(fonts: &Fonts, console: &ConsoleState, time: f32) {
         ICE,
         false,
         Align::Left,
+    );
+}
+
+pub fn draw_handshake(fonts: &Fonts, line: &HandshakeLine, time: f32) {
+    let width = screen_width();
+    let age = line.age;
+    let life = crate::theme::HANDSHAKE_LIFETIME;
+    let t = (age / life).clamp(0.0, 1.0);
+    let alpha_t = if t < 0.2 {
+        t / 0.2
+    } else if t > 0.8 {
+        (1.0 - t) / 0.2
+    } else {
+        1.0
+    };
+    if alpha_t <= 0.0 {
+        return;
+    }
+    let color = alpha(crate::theme::CYAN, 0.9 * alpha_t);
+    let y = 92.0 + (1.0 - alpha_t) * 4.0;
+    let glitch = if age < 0.12 && ((time * 18.0) as i32) % 3 == 0 {
+        2.0
+    } else {
+        0.0
+    };
+    fonts.draw(
+        &line.text,
+        width * 0.5 + glitch,
+        y,
+        crate::theme::FONT_SMALL,
+        color,
+        true,
+        Align::Center,
     );
 }
 

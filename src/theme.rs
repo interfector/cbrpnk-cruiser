@@ -120,6 +120,7 @@ pub const CONSOLE_LINE_HEIGHT: f32 = 18.0;
 pub const CONSOLE_TOP_RESERVE: f32 = 48.0;
 pub const CONSOLE_BUFFER: usize = 300;
 pub const STATUS_LIFETIME: f32 = 7.0;
+pub const HANDSHAKE_LIFETIME: f32 = 1.8;
 
 pub const CAMERA_MIN: f32 = -1.0;
 pub const CAMERA_MAX: f32 = 16.0;

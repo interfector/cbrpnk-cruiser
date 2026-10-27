@@ -3,9 +3,9 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use macroquad::prelude::{
-    clear_background, get_char_pressed, get_fps, get_frame_time, get_time, is_key_pressed,
-    is_mouse_button_down, is_mouse_button_pressed, is_quit_requested, mouse_position, next_frame,
-    screen_height, screen_width, KeyCode, MouseButton,
+    clear_background, draw_rectangle, get_char_pressed, get_fps, get_frame_time, get_time,
+    is_key_pressed, is_mouse_button_down, is_mouse_button_pressed, is_quit_requested,
+    mouse_position, next_frame, screen_height, screen_width, KeyCode, MouseButton,
 };
 
 use crate::camera::Camera;
@@ -20,12 +20,12 @@ use crate::launch::process::{
     LaunchWorker, OutputStream,
 };
 use crate::layout::SectorLayout;
-use crate::render::hud::{self, ConsoleState, Hints, StatusMessage, Tone, TopHud};
+use crate::render::hud::{self, ConsoleState, HandshakeLine, Hints, StatusMessage, Tone, TopHud};
 use crate::render::scene::{parent_gate_position, parent_gate_reached, Scene};
 use crate::render::Renderer;
 use crate::theme::{
-    AUTO_ENTER_GUARD, BOOT_SECONDS, CONSOLE_RESIZE_STEP, FOCUS_TOLERANCE_PX, MAX_DIRECTORY_COUNTS,
-    STATUS_LIFETIME, VOID,
+    alpha, AUTO_ENTER_GUARD, BOOT_SECONDS, CONSOLE_RESIZE_STEP, CYAN, FOCUS_TOLERANCE_PX,
+    HANDSHAKE_LIFETIME, MAGENTA, MAX_DIRECTORY_COUNTS, STATUS_LIFETIME, VOID,
 };
 use crate::util::home_dir;
 use crate::wm::{self, DragKind, WindowManager};
@@ -58,6 +58,7 @@ pub struct App {
 
     scan_worker: ScanWorker,
     scan_generation: u64,
+    glitch_until: f64,
     scanning: bool,
     count_worker: CountWorker,
     count_generation: u64,
@@ -94,6 +95,7 @@ pub struct App {
     active_tasks: HashMap<u64, String>,
 
     statuses: Vec<StatusMessage>,
+    handshake: Option<HandshakeLine>,
     host: String,
     last_frame_ms: f32,
     windows: WindowManager,
@@ -128,6 +130,7 @@ impl App {
             scan_worker: ScanWorker::spawn(),
             scan_generation: 0,
             scanning: false,
+            glitch_until: 0.0,
             count_worker: CountWorker::spawn(),
             count_generation: 0,
             directory_counts: HashMap::new(),
@@ -159,6 +162,7 @@ impl App {
             next_task_id: 0,
             active_tasks: HashMap::new(),
             statuses: Vec::new(),
+            handshake: None,
             host,
             last_frame_ms: 0.0,
             windows: WindowManager::new(),
@@ -188,6 +192,12 @@ impl App {
             self.poll_launches();
             self.poll_windows();
             self.update(dt);
+            if let Some(handshake) = self.handshake.as_mut() {
+                handshake.age += dt;
+                if handshake.age >= HANDSHAKE_LIFETIME {
+                    self.handshake = None;
+                }
+            }
             self.draw();
             next_frame().await;
             if self.quit {
@@ -1149,6 +1159,9 @@ impl App {
             );
             self.push_status(message.clone(), Tone::Error);
             self.console.push(message, Tone::Error);
+            if !self.config.reduced_motion {
+                self.glitch_until = get_time() + 0.12;
+            }
             return;
         }
 
@@ -1161,6 +1174,9 @@ impl App {
                         let message = format!("SYMLINK LOOP REFUSED: {}", canonical.display());
                         self.push_status(message.clone(), Tone::Error);
                         self.console.push(message, Tone::Error);
+                        if !self.config.reduced_motion {
+                            self.glitch_until = get_time() + 0.14;
+                        }
                         return;
                     }
                 }
@@ -1188,12 +1204,24 @@ impl App {
             self.applied_filter = None;
             self.camera.recenter();
             self.auto_enter_guard = AUTO_ENTER_GUARD;
-            if let Some(canonical) = canonical_path {
+            if let Some(canonical) = canonical_path.clone() {
                 self.canonical_history.push(canonical);
                 if self.canonical_history.len() > 64 {
                     self.canonical_history.drain(0..16);
                 }
             }
+            let sector = self
+                .cwd
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "/".to_string());
+            self.handshake = Some(HandshakeLine {
+                text: format!(
+                    "SECTOR HANDSHAKE // {}  // {} NODES",
+                    sector, visible_entries
+                ),
+                age: 0.0,
+            });
         }
 
         self.rebuild_layout();
@@ -1737,6 +1765,9 @@ impl App {
             self.selected_entry(),
             self.selected_parent(),
         );
+        if let Some(handshake) = &self.handshake {
+            hud::draw_handshake(&self.renderer.fonts, handshake, self.time);
+        }
         let filter = self.filter_text();
         let hints = Hints {
             statuses: &self.statuses,
@@ -1779,6 +1810,14 @@ impl App {
             hud::draw_debug(&self.renderer.fonts, &debug);
         }
 
+        if !self.config.reduced_motion && get_time() < self.glitch_until {
+            let w = screen_width();
+            let h = screen_height();
+            let shift = ((self.time * 137.0) as i32 % 5 - 2) as f32 * 4.0;
+            draw_rectangle(shift, 0.0, w - shift.abs(), h * 0.08, alpha(MAGENTA, 0.08));
+            draw_rectangle(0.0, h * 0.42, w, h * 0.05, alpha(CYAN, 0.06));
+            draw_rectangle(shift * -0.5, h * 0.76, w, h * 0.07, alpha(MAGENTA, 0.07));
+        }
         self.renderer.draw_post(self.time);
     }
 }

@@ -47,6 +47,23 @@ pub fn parent_gate_reached(position: Vec3) -> bool {
     position.distance(parent_gate_position()) <= PARENT_GATE_ENTRY_RADIUS
 }
 
+fn bezier_point(points: &[Vec3], t: f32) -> Vec3 {
+    if points.is_empty() {
+        return Vec3::ZERO;
+    }
+    if points.len() == 1 {
+        return points[0];
+    }
+    let max = (points.len() - 1) as f32;
+    let scaled = (t * max).clamp(0.0, max);
+    let index = scaled.floor() as usize;
+    let local = scaled - index as f32;
+    if index + 1 >= points.len() {
+        return points[points.len() - 1];
+    }
+    points[index] * (1.0 - local) + points[index + 1] * local
+}
+
 impl Scene<'_> {
     pub fn draw(&self, fonts: &Fonts) {
         let width = screen_width();
@@ -128,9 +145,11 @@ impl Scene<'_> {
     }
 
     fn draw_rings(&self, width: f32, height: f32) {
+        let time = self.time;
+        let motion = if self.reduced_motion { 0.0f32 } else { 1.0f32 };
         for (index, (radius, center_y, tilt)) in SECTOR_RINGS.iter().enumerate() {
             let segments = 96;
-            let color = alpha(CYAN_DIM, if index == 0 { 0.28 } else { 0.11 });
+            let base_color = alpha(CYAN_DIM, if index == 0 { 0.28 } else { 0.11 });
             let (tilt_sin, tilt_cos) = tilt.sin_cos();
             let mut previous: Option<Projected> = None;
             for segment in 0..=segments {
@@ -142,14 +161,26 @@ impl Scene<'_> {
                 );
                 let projected = self.camera.project(point, width, height);
                 if let (Some(from), Some(to)) = (previous, projected) {
-                    let alpha = (1.0 - from.depth / 80.0).clamp(0.03, 1.0);
+                    let dist_fade = (1.0 - from.depth / 80.0).clamp(0.03, 1.0);
+                    let pulse_phase =
+                        (time * 0.8 * motion + index as f32 * 0.6 + segment as f32 * 0.01) % 1.0;
+                    let pulse = if pulse_phase > 0.9 {
+                        (pulse_phase - 0.9) / 0.1
+                    } else {
+                        0.0
+                    };
+                    let color = if pulse > 0.0 {
+                        alpha_multiply(alpha(ICE, 0.18 + pulse * 0.28), dist_fade)
+                    } else {
+                        alpha_multiply(base_color, dist_fade)
+                    };
                     draw_line(
                         from.screen.x,
                         from.screen.y,
                         to.screen.x,
                         to.screen.y,
                         1.0,
-                        alpha_multiply(color, alpha),
+                        color,
                     );
                 }
                 previous = projected;
@@ -158,6 +189,8 @@ impl Scene<'_> {
     }
 
     fn draw_links(&self, width: f32, height: f32) {
+        let time = self.time;
+        let motion = if self.reduced_motion { 0.0f32 } else { 1.0f32 };
         for link in &self.layout.links {
             let (Some(source), Some(target)) = (
                 self.layout.nodes.get(link.source),
@@ -186,26 +219,57 @@ impl Scene<'_> {
                 0.24
             };
             let mut previous: Option<Projected> = None;
-            for step in 0..=28 {
-                let t = step as f32 / 28.0;
-                let inverse = 1.0 - t;
-                let point =
-                    from * (inverse * inverse) + control * (2.0 * inverse * t) + to * (t * t);
-                let projected = self.camera.project(point, width, height);
-                if let (Some(start), Some(end)) = (previous, projected) {
-                    let depth = (start.depth + end.depth) * 0.5;
+            let points: Vec<Vec3> = (0..=28)
+                .map(|step| {
+                    let t = step as f32 / 28.0;
+                    let inverse = 1.0 - t;
+                    from * (inverse * inverse) + control * (2.0 * inverse * t) + to * (t * t)
+                })
+                .collect();
+            for window in points.windows(2) {
+                let start = window[0];
+                let end = window[1];
+                let projected_start = self.camera.project(start, width, height);
+                let projected_end = self.camera.project(end, width, height);
+                if let (Some(start_p), Some(end_p)) = (projected_start, projected_end) {
+                    let depth = (start_p.depth + end_p.depth) * 0.5;
                     let fade = (1.0 - depth / 70.0).clamp(0.12, 1.0);
                     draw_line(
-                        start.screen.x,
-                        start.screen.y,
-                        end.screen.x,
-                        end.screen.y,
+                        start_p.screen.x,
+                        start_p.screen.y,
+                        end_p.screen.x,
+                        end_p.screen.y,
                         1.2,
                         alpha(MAGENTA, base_alpha * fade),
                     );
                 }
-                previous = projected;
+                previous = projected_end;
             }
+            if !self.reduced_motion {
+                let count = if link.cross_galaxy {
+                    4
+                } else if highlighted {
+                    2
+                } else {
+                    0
+                };
+                for p in 0..count {
+                    let t = ((time * 0.38 * motion + (seed.rotate_left(p * 11) as f32) * 0.000173)
+                        % 1.0)
+                        .clamp(0.0, 1.0);
+                    let pos = bezier_point(&points, t);
+                    if let Some(projected) = self.camera.project(pos, width, height) {
+                        let alpha_f = (1.0 - projected.depth / 66.0).clamp(0.0, 1.0);
+                        draw_circle(
+                            projected.screen.x,
+                            projected.screen.y,
+                            1.5,
+                            alpha(ICE, alpha_f * 0.9),
+                        );
+                    }
+                }
+            }
+            let _ = previous;
         }
     }
 
