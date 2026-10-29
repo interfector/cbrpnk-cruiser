@@ -271,6 +271,24 @@ impl App {
         }
 
         if let Some(intent) = input::cruise_intent(self.locked) {
+            if matches!(intent, Intent::Quit) && self.applied_filter.is_some() && !self.locked {
+                self.applied_filter = None;
+                self.filter = None;
+                self.rebuild_layout();
+                self.update_focus();
+                self.push_status("FILTER CLEARED", Tone::Normal);
+                return;
+            }
+            if matches!(intent, Intent::ToggleLock) && self.applied_filter.is_some() && self.locked
+            {
+                self.locked = false;
+                self.applied_filter = None;
+                self.filter = None;
+                self.rebuild_layout();
+                self.update_focus();
+                self.push_status("FILTER CLEARED", Tone::Normal);
+                return;
+            }
             self.handle_intent(intent);
             if self.quit || self.windows.has_focus() {
                 return;
@@ -1616,8 +1634,13 @@ impl App {
 
     fn rebuild_layout(&mut self) {
         let indices = self.visible_indices();
-        self.layout =
-            SectorLayout::build_with_counts(&self.entries, &indices, &self.directory_counts);
+        self.layout = SectorLayout::build_with_scales(
+            &self.entries,
+            &indices,
+            &self.directory_counts,
+            self.config.node_scale,
+            self.config.galaxy_scale,
+        );
     }
 
     fn request_directory_counts(&mut self) {

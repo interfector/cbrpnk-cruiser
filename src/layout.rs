@@ -44,7 +44,17 @@ impl SectorLayout {
     pub fn build_with_counts(
         entries: &[Entry],
         visible: &[usize],
-        child_counts: &HashMap<PathBuf, usize>,
+        counts: &std::collections::HashMap<PathBuf, usize>,
+    ) -> Self {
+        Self::build_with_scales(entries, visible, counts, 1.0, 1.0)
+    }
+
+    pub fn build_with_scales(
+        entries: &[Entry],
+        visible: &[usize],
+        counts: &std::collections::HashMap<PathBuf, usize>,
+        node_scale: f32,
+        galaxy_scale: f32,
     ) -> Self {
         let mut nodes = Vec::with_capacity(visible.len());
         let mut index = HashMap::with_capacity(visible.len());
@@ -53,19 +63,20 @@ impl SectorLayout {
             let Some(entry) = entries.get(*entry_index) else {
                 continue;
             };
-            let child_count = child_counts.get(&entry.path).copied();
+            let child_count = counts.get(&entry.path).copied();
             let galaxy_radius = if entry.is_dir_like() {
-                directory_galaxy_radius(child_count)
+                directory_galaxy_radius(child_count) * galaxy_scale
             } else {
                 0.0
             };
-            let radius = match entry.kind {
+            let radius = ((match entry.kind {
                 EntryKind::Directory => directory_core_radius(galaxy_radius),
                 EntryKind::File if entry.executable => NODE_EXEC_RADIUS,
                 EntryKind::File => file_radius(entry.size),
                 EntryKind::Symlink => NODE_LINK_RADIUS,
                 EntryKind::Other => NODE_OTHER_RADIUS,
-            };
+            }) * node_scale)
+                .clamp(0.08, 0.6);
 
             let node = Node {
                 path: entry.path.clone(),

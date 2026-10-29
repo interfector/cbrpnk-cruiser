@@ -23,6 +23,8 @@ pub struct Config {
     pub unfocused_opacity: f32,
     pub auto_enter: bool,
     pub auto_enter_factor: f32,
+    pub node_scale: f32,
+    pub galaxy_scale: f32,
     #[serde(alias = "auto-hide-mouse")]
     pub auto_hide_mouse: bool,
     pub open_with_system: bool,
@@ -49,6 +51,8 @@ impl Default for Config {
             unfocused_opacity: WM_UNFOCUSED_OPACITY,
             auto_enter: true,
             auto_enter_factor: AUTO_ENTER_FACTOR,
+            node_scale: 1.0,
+            galaxy_scale: 1.0,
             auto_hide_mouse: true,
             open_with_system: true,
             enter_shell: false,
@@ -137,6 +141,28 @@ pub fn validate(mut config: Config) -> (Config, Option<String>) {
     if !config.font_scale.is_finite() {
         warnings.push("font_scale is not finite, using 1.0".to_string());
         config.font_scale = 1.0;
+    }
+    if !config.node_scale.is_finite() {
+        warnings.push("node_scale is not finite, using 1.0".to_string());
+        config.node_scale = 1.0;
+    } else if !(0.5..=2.0).contains(&config.node_scale) {
+        let scale = config.node_scale.clamp(0.5, 2.0);
+        warnings.push(format!(
+            "node_scale {} clamped to {scale}",
+            config.node_scale
+        ));
+        config.node_scale = scale;
+    }
+    if !config.galaxy_scale.is_finite() {
+        warnings.push("galaxy_scale is not finite, using 1.0".to_string());
+        config.galaxy_scale = 1.0;
+    } else if !(0.4..=2.0).contains(&config.galaxy_scale) {
+        let scale = config.galaxy_scale.clamp(0.4, 2.0);
+        warnings.push(format!(
+            "galaxy_scale {} clamped to {scale}",
+            config.galaxy_scale
+        ));
+        config.galaxy_scale = scale;
     }
     if !config.unfocused_opacity.is_finite() {
         warnings.push(format!(
@@ -341,6 +367,43 @@ mod tests {
         };
         let (config, warning) = validate(config);
         assert_eq!(config.auto_enter_factor, 0.0);
+        assert!(warning.is_some());
+    }
+
+    #[test]
+    fn configures_node_and_galaxy_scale() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "node_scale = 0.7\ngalaxy_scale = 0.8\n").unwrap();
+        let loaded = load(Some(&path));
+        assert_eq!(loaded.config.node_scale, 0.7);
+        assert_eq!(loaded.config.galaxy_scale, 0.8);
+        assert!(loaded.warning.is_none());
+    }
+
+    #[test]
+    fn clamps_node_and_galaxy_scale() {
+        let config = Config {
+            node_scale: 3.0,
+            galaxy_scale: 0.1,
+            ..Config::default()
+        };
+        let (config, warning) = validate(config);
+        assert_eq!(config.node_scale, 2.0);
+        assert_eq!(config.galaxy_scale, 0.4);
+        assert!(warning.is_some());
+    }
+
+    #[test]
+    fn replaces_non_finite_node_and_galaxy_scale() {
+        let config = Config {
+            node_scale: f32::NAN,
+            galaxy_scale: f32::INFINITY,
+            ..Config::default()
+        };
+        let (config, warning) = validate(config);
+        assert_eq!(config.node_scale, 1.0);
+        assert_eq!(config.galaxy_scale, 1.0);
         assert!(warning.is_some());
     }
 
