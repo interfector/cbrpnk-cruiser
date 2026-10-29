@@ -111,6 +111,7 @@ show it at all times.
 | `Tab` | Toggle Lock mode; complete input in Console |
 | `Ctrl+Up` / `Ctrl+Down` | Adjust Console height |
 | `Enter` | Enter directory, launch executable, open file, or enter `PARENT` |
+| `Ctrl+P` | Open fuzzy quick switcher |
 | `Ctrl+T` | Open a shell in an in-app terminal window |
 | `Ctrl+Enter` | Run selection in a terminal window; directory opens a shell there |
 | `F6` | Cycle terminal-window focus |

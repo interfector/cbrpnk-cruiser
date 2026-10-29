@@ -24,6 +24,7 @@ pub enum Intent {
     TerminalWindow,
     RunInWindow,
     CycleWindow,
+    Switcher,
     Console,
     Filter,
     Recenter,
@@ -140,6 +141,9 @@ pub fn cruise_intent(locked: bool) -> Option<Intent> {
     }
     if is_key_pressed(KeyCode::Slash) && !shift_down() {
         return Some(Intent::Filter);
+    }
+    if ctrl_down() && is_key_pressed(KeyCode::P) {
+        return Some(Intent::Switcher);
     }
     if is_key_pressed(KeyCode::R) {
         return Some(Intent::Recenter);

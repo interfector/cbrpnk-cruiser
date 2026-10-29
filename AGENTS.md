@@ -257,6 +257,7 @@ codes so non-US keyboard layouts work.
 | `~` or `Home` | Go to `$HOME` |
 | `/` | Filter the current sector incrementally |
 | `:` | Open the command console |
+| `Ctrl+P` | Open fuzzy quick switcher |
 | `O` | Open the selected entry with the system handler |
 | `R` | Recenter the ship on the sector axis |
 | `F` | Freeze / unfreeze motion |

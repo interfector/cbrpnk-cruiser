@@ -37,6 +37,7 @@ enum Mode {
     Cruise,
     Console,
     Help,
+    Switcher,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +48,20 @@ struct PendingNav {
 #[derive(Debug)]
 struct FilterState {
     text: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SwitcherItem {
+    pub path: PathBuf,
+    pub label: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SwitcherState {
+    pub input: String,
+    pub items: Vec<SwitcherItem>,
+    pub index: usize,
 }
 
 pub struct App {
@@ -77,6 +92,7 @@ pub struct App {
     locked: bool,
     filter: Option<FilterState>,
     applied_filter: Option<String>,
+    switcher: Option<SwitcherState>,
 
     mode: Mode,
     camera: Camera,
@@ -150,6 +166,7 @@ impl App {
             locked: false,
             filter: None,
             applied_filter: None,
+            switcher: None,
             mode: Mode::Boot,
             camera: Camera::new(),
             auto_enter_guard: 0.0,
@@ -245,6 +262,10 @@ impl App {
                     self.push_status("RECENT JUMP", Tone::Command);
                 }
             }
+            if input::ctrl_down() && is_key_pressed(KeyCode::P) {
+                self.open_switcher();
+                return;
+            }
             if is_key_pressed(KeyCode::F11) || (is_key_down_alt() && is_key_pressed(KeyCode::Enter))
             {
                 self.toggle_fullscreen();
@@ -275,6 +296,10 @@ impl App {
                 return;
             }
             Mode::Cruise => {}
+            Mode::Switcher => {
+                self.handle_switcher_keys();
+                return;
+            }
         }
 
         if self.filter.is_some() {
@@ -405,6 +430,7 @@ impl App {
             }
             Intent::TerminalWindow => self.open_shell_window(self.cwd.clone()),
             Intent::RunInWindow => self.open_selected_in_window(),
+            Intent::Switcher => self.open_switcher(),
             Intent::CycleWindow => self.cycle_window_focus(),
             Intent::Console => self.open_console(),
             Intent::Filter => self.open_filter(),
@@ -825,6 +851,99 @@ impl App {
         self.push_status("FILTER MODE", Tone::Command);
     }
 
+    fn open_switcher(&mut self) {
+        self.mode = Mode::Switcher;
+        if let Some(switcher) = &self.switcher {
+            self.switcher = Some(SwitcherState {
+                input: switcher.input.clone(),
+                items: switcher.items.clone(),
+                index: switcher.index,
+            });
+        } else {
+            self.refresh_switcher();
+        }
+        self.push_status("QUICK SWITCHER", Tone::Command);
+    }
+
+    fn close_switcher(&mut self) {
+        self.mode = Mode::Cruise;
+        self.switcher = None;
+        self.push_status("SWITCHER CLOSED", Tone::Normal);
+    }
+
+    fn refresh_switcher(&mut self) {
+        let layout = self.layout.clone();
+        let entries = self.entries.clone();
+        let mut items = Vec::new();
+        for node in &layout.nodes {
+            if let Some(entry) = entries.get(node.entry_index) {
+                items.push(SwitcherItem {
+                    path: entry.path.clone(),
+                    label: entry.display_name().to_string(),
+                    kind: if entry.is_dir_like() {
+                        "DIR".to_string()
+                    } else if entry.executable {
+                        "EXEC".to_string()
+                    } else if entry.kind == crate::fs::EntryKind::Symlink {
+                        "LINK".to_string()
+                    } else {
+                        "FILE".to_string()
+                    },
+                });
+            }
+        }
+        self.switcher = Some(SwitcherState {
+            input: String::new(),
+            items,
+            index: 0,
+        });
+    }
+
+    fn handle_switcher_keys(&mut self) {
+        let Some(switcher) = &mut self.switcher else {
+            self.close_switcher();
+            return;
+        };
+        if is_key_pressed(KeyCode::Escape) {
+            self.close_switcher();
+            return;
+        }
+        if is_key_pressed(KeyCode::Enter) {
+            let item = switcher.items.get(switcher.index).cloned();
+            self.close_switcher();
+            if let Some(item) = item {
+                if item.kind == "DIR" {
+                    self.navigate_to(item.path, false);
+                } else if item.kind == "EXEC" {
+                    self.launch_executable(&item.path);
+                } else {
+                    self.open_path(&item.path);
+                }
+            }
+            return;
+        }
+        if is_key_pressed(KeyCode::Up) && switcher.index > 0 {
+            switcher.index -= 1;
+        }
+        if is_key_pressed(KeyCode::Down) && switcher.index + 1 < switcher.items.len() {
+            switcher.index += 1;
+        }
+        let mut changed = false;
+        while let Some(character) = get_char_pressed() {
+            if !character.is_control() && switcher.input.len() < 40 {
+                switcher.input.push(character);
+                changed = true;
+            }
+        }
+        if changed {
+            let query = switcher.input.to_lowercase();
+            switcher
+                .items
+                .retain(|item| item.label.to_lowercase().contains(&query));
+            switcher.index = 0;
+        }
+    }
+
     fn handle_console_keys(&mut self) {
         if is_key_pressed(KeyCode::Escape) {
             self.close_console();
@@ -1228,6 +1347,14 @@ impl App {
         }
 
         let previous_selected = self.selected.clone();
+        if navigation.is_some() && self.cwd != path {
+            let old = self.cwd.clone();
+            self.recent.retain(|p| p != &old);
+            self.recent.push(old);
+            if self.recent.len() > 32 {
+                self.recent.drain(0..self.recent.len() - 32);
+            }
+        }
         self.cwd = path;
         self.canonical_cwd = canonical_path.clone();
         self.entries = entries;
@@ -1242,13 +1369,6 @@ impl App {
         self.scanning = false;
 
         if navigation.is_some() {
-            if self.cwd != path {
-                self.recent.retain(|p| p != &self.cwd);
-                self.recent.push(self.cwd.clone());
-                if self.recent.len() > 32 {
-                    self.recent.drain(0..self.recent.len() - 32);
-                }
-            }
             self.selected = None;
             self.locked = false;
             self.filter = None;
@@ -1331,9 +1451,10 @@ impl App {
             self.rescan();
             return;
         }
-        if path != self.cwd {
-            self.recent.retain(|p| p != &self.cwd);
-            self.recent.push(self.cwd.clone());
+        let current = self.cwd.clone();
+        if path != current {
+            self.recent.retain(|p| p != &current);
+            self.recent.push(current);
             if self.recent.len() > 32 {
                 self.recent.drain(0..self.recent.len() - 32);
             }

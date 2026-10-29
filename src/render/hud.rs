@@ -690,7 +690,7 @@ pub fn draw_help(fonts: &Fonts) {
         Align::Left,
     );
     top += 34.0;
-    let sections: [(&str, &[&str]); 4] = [
+    let sections: [(&str, &[&str]); 5] = [
         (
             "NAVIGATION",
             &[
@@ -705,6 +705,14 @@ pub fn draw_help(fonts: &Fonts) {
                 "Mouse wheel     cruise speed",
                 "R               recenter",
                 "F               freeze / unfreeze",
+            ],
+        ),
+        (
+            "QUICK SWITCHER",
+            &[
+                "Ctrl+P          fuzzy switch directory / entry",
+                "Enter           accept selection",
+                "Esc             close overlay",
             ],
         ),
         (
@@ -971,6 +979,59 @@ pub fn draw_netmap(
         true,
         crate::render::text::Align::Left,
     );
+}
+
+pub fn draw_switcher(
+    fonts: &Fonts,
+    state: &crate::app::SwitcherState,
+    time: f32,
+    width: f32,
+    height: f32,
+) {
+    draw_rectangle(0.0, 0.0, width, height, alpha(crate::theme::VOID, 0.94));
+    let panel_w = (width - PAD * 4.0).min(720.0);
+    let panel_h = (height - PAD * 4.0).min(420.0);
+    let x = (width - panel_w) * 0.5;
+    let y = (height - panel_h) * 0.5;
+    panel(x, y, panel_w, panel_h, alpha(crate::theme::CYAN, 0.35));
+    let mut top = y + 14.0;
+    fonts.draw(
+        "QUICK SWITCHOVER  //  CTRL+P  ·  ENTER  ·  ESC",
+        x + 14.0,
+        top,
+        crate::theme::FONT_SMALL,
+        alpha(crate::theme::ICE, 0.9),
+        true,
+        crate::render::text::Align::Left,
+    );
+    top += 32.0;
+    for (item_index, item) in state.items.iter().enumerate() {
+        let selected = item_index == state.index;
+        let color = if selected {
+            crate::theme::ICE
+        } else {
+            crate::theme::TEXT_MUTED
+        };
+        let text = if item.label == item.kind {
+            item.label.clone()
+        } else {
+            format!("{}  //  {}", item.label, item.kind)
+        };
+        fonts.draw(
+            &text,
+            x + 14.0,
+            top,
+            crate::theme::FONT_SMALL,
+            color,
+            selected,
+            crate::render::text::Align::Left,
+        );
+        top += 24.0;
+        if top > y + panel_h - 14.0 {
+            break;
+        }
+    }
+    let _ = time;
 }
 
 pub fn draw_debug(fonts: &Fonts, text: &str) {
