@@ -25,7 +25,8 @@ use crate::render::scene::{parent_gate_position, parent_gate_reached, Scene};
 use crate::render::Renderer;
 use crate::theme::{
     alpha, AUTO_ENTER_GUARD, BOOT_SECONDS, CONSOLE_RESIZE_STEP, CYAN, FOCUS_TOLERANCE_PX,
-    HANDSHAKE_LIFETIME, MAGENTA, MAX_DIRECTORY_COUNTS, STATUS_LIFETIME, VOID,
+    HANDSHAKE_LIFETIME, MAGENTA, MAX_DIRECTORY_COUNTS, STATUS_LIFETIME, VISITED_GLOW_LIFETIME,
+    VOID,
 };
 use crate::util::home_dir;
 use crate::wm::{self, DragKind, WindowManager};
@@ -96,6 +97,8 @@ pub struct App {
 
     statuses: Vec<StatusMessage>,
     handshake: Option<HandshakeLine>,
+    visited: HashMap<PathBuf, f32>,
+    netmap: bool,
     host: String,
     last_frame_ms: f32,
     windows: WindowManager,
@@ -163,6 +166,8 @@ impl App {
             active_tasks: HashMap::new(),
             statuses: Vec::new(),
             handshake: None,
+            visited: HashMap::new(),
+            netmap: false,
             host,
             last_frame_ms: 0.0,
             windows: WindowManager::new(),
@@ -219,6 +224,17 @@ impl App {
             }
             if is_key_pressed(KeyCode::F3) {
                 self.show_debug = !self.show_debug;
+            }
+            if is_key_pressed(KeyCode::F4) {
+                self.netmap = !self.netmap;
+                self.push_status(
+                    if self.netmap {
+                        "NETMAP ON"
+                    } else {
+                        "NETMAP OFF"
+                    },
+                    Tone::Command,
+                );
             }
             if is_key_pressed(KeyCode::F11) || (is_key_down_alt() && is_key_pressed(KeyCode::Enter))
             {
@@ -1240,6 +1256,7 @@ impl App {
                 ),
                 age: 0.0,
             });
+            self.visited.insert(self.cwd.clone(), self.time);
         }
 
         self.rebuild_layout();
@@ -1720,6 +1737,16 @@ impl App {
         }
     }
 
+    fn visited_glow(&self, path: &Path) -> f32 {
+        let Some(age) = self.visited.get(path).map(|t| self.time - *t) else {
+            return 0.0;
+        };
+        if self.config.reduced_motion {
+            return 0.0;
+        }
+        ((VISITED_GLOW_LIFETIME - age).max(0.0) / VISITED_GLOW_LIFETIME).clamp(0.0, 1.0)
+    }
+
     fn draw(&mut self) {
         self.sync_pointer_visibility();
         clear_background(VOID);
@@ -1739,6 +1766,7 @@ impl App {
             sector_path: &self.cwd,
             time: self.time,
             reduced_motion: self.config.reduced_motion,
+            visited_glow: &|path| self.visited_glow(path),
         };
         scene.draw(&self.renderer.fonts);
 
@@ -1806,6 +1834,16 @@ impl App {
             self.layout_window,
             self.config.unfocused_opacity,
         );
+
+        if self.netmap && self.mode == Mode::Cruise {
+            hud::draw_netmap(
+                &self.renderer.fonts,
+                &self.layout,
+                &self.entries,
+                self.selected.as_deref(),
+                self.time,
+            );
+        }
 
         if self.mode == Mode::Console {
             hud::draw_console(&self.renderer.fonts, &self.console, self.time);

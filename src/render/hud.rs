@@ -1,10 +1,12 @@
 use std::path::Path;
 
 use macroquad::prelude::{
-    draw_line, draw_rectangle, draw_rectangle_lines, screen_height, screen_width, Color,
+    draw_circle, draw_line, draw_rectangle, draw_rectangle_lines, screen_height, screen_width,
+    Color,
 };
 
 use crate::fs::Entry;
+use crate::layout::SectorLayout;
 use crate::render::text::{Align, Fonts};
 use crate::theme::{
     alpha, AMBER, CONSOLE_BUFFER, CONSOLE_LINES, CONSOLE_LINE_HEIGHT, CONSOLE_MAX_LINES,
@@ -879,6 +881,60 @@ pub fn draw_empty(fonts: &Fonts, text: &str) {
     );
 }
 
+pub fn draw_netmap(
+    fonts: &Fonts,
+    layout: &SectorLayout,
+    _entries: &[Entry],
+    selected: Option<&std::path::Path>,
+    time: f32,
+) {
+    let width = screen_width();
+    let height = screen_height();
+    draw_rectangle(0.0, 0.0, width, height, alpha(crate::theme::VOID, 0.92));
+    let cx = width * 0.5;
+    let cy = height * 0.5;
+    let scale = 8.0;
+    for link in &layout.links {
+        let (Some(a), Some(b)) = (layout.nodes.get(link.source), layout.nodes.get(link.target))
+        else {
+            continue;
+        };
+        let ax = cx + a.position.x * scale;
+        let ay = cy - a.position.z * scale;
+        let bx = cx + b.position.x * scale;
+        let by = cy - b.position.z * scale;
+        draw_line(ax, ay, bx, by, 1.0, alpha(crate::theme::MAGENTA, 0.18));
+    }
+    for node in &layout.nodes {
+        let x = cx + node.position.x * scale;
+        let y = cy - node.position.z * scale;
+        let sel = selected.is_some_and(|p| p == node.path.as_path());
+        let color = if sel {
+            crate::theme::ICE
+        } else if node.kind == crate::fs::EntryKind::Directory {
+            crate::theme::CYAN
+        } else if node.executable {
+            crate::theme::AMBER
+        } else if node.kind == crate::fs::EntryKind::Symlink {
+            crate::theme::MAGENTA
+        } else {
+            crate::theme::TEXT_MUTED
+        };
+        let r = if sel { 4.0 } else { 2.6 };
+        draw_circle(x, y, r, color);
+    }
+    let pulse = (time * 0.6).sin() * 0.5 + 0.5;
+    fonts.draw(
+        "NETMAP  //  F4 CLOSE",
+        cx,
+        28.0,
+        crate::theme::FONT_SMALL,
+        alpha(crate::theme::CYAN, 0.8 + pulse * 0.2),
+        true,
+        crate::render::text::Align::Center,
+    );
+}
+
 pub fn draw_debug(fonts: &Fonts, text: &str) {
     let width = 320.0;
     let height = 20.0 * text.lines().count() as f32 + 16.0;
@@ -902,7 +958,7 @@ pub fn draw_debug(fonts: &Fonts, text: &str) {
 
 fn panel(x: f32, y: f32, width: f32, height: f32, border: Color) {
     draw_rectangle(x, y, width, height, alpha(DEEP_PANEL, PANEL_ALPHA));
-    draw_rectangle_lines(x, y, width, height, 1.0, border);
+    draw_rectangle(x, y, width, height, border);
     let accent = 14.0;
     draw_line(x, y, x + accent, y, 1.5, alpha(CYAN, 0.9));
     draw_line(x, y, x, y + accent, 1.5, alpha(CYAN, 0.9));

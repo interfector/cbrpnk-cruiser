@@ -24,6 +24,7 @@ pub struct Scene<'a> {
     pub sector_path: &'a Path,
     pub time: f32,
     pub reduced_motion: bool,
+    pub visited_glow: &'a dyn Fn(&Path) -> f32,
 }
 
 struct ScreenNode<'a> {
@@ -358,7 +359,19 @@ impl Scene<'_> {
                 .selected
                 .map(|path| path == item.node.path.as_path())
                 .unwrap_or(false);
-            let color = node_color(item.node, selected, fade);
+            let glow = (self.visited_glow)(item.node.path.as_path());
+            let mut color = node_color(item.node, selected, fade);
+            if glow > 0.0 && !selected {
+                color = alpha(ICE, (0.68 * fade + glow * 0.32).clamp(0.0, 0.98));
+                let x = item.projected.screen.x;
+                let y = item.projected.screen.y;
+                draw_circle(
+                    x,
+                    y,
+                    screen_radius * (1.25 + glow * 0.18),
+                    alpha(ICE, glow * 0.12),
+                );
+            }
             let galaxy_detail =
                 item.node.kind == EntryKind::Directory && screen_radius >= 4.0 && galaxy_budget > 0;
             if galaxy_detail {
