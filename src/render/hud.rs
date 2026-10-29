@@ -884,7 +884,7 @@ pub fn draw_empty(fonts: &Fonts, text: &str) {
 pub fn draw_netmap(
     fonts: &Fonts,
     layout: &SectorLayout,
-    _entries: &[Entry],
+    entries: &[Entry],
     selected: Option<&std::path::Path>,
     time: f32,
 ) {
@@ -933,6 +933,23 @@ pub fn draw_netmap(
         };
         let r = if sel { 4.6 } else { 3.2 };
         draw_circle(x, y, r, color);
+    }
+    if let Some(sel) = selected {
+        if let Some(node) = layout.node_for(sel) {
+            if let Some(entry) = entries.get(node.entry_index) {
+                let _pulse = (time * 0.6).sin() * 0.5 + 0.5;
+                fonts.draw(
+                    &format!("NETMAP  //  {}  //  F4 CLOSE", entry.display_name()),
+                    px + 14.0,
+                    py + 10.0,
+                    crate::theme::FONT_SMALL,
+                    alpha(crate::theme::ICE, 0.95),
+                    true,
+                    crate::render::text::Align::Left,
+                );
+                return;
+            }
+        }
     }
     let pulse = (time * 0.6).sin() * 0.5 + 0.5;
     fonts.draw(

@@ -388,6 +388,7 @@ impl App {
             Intent::NextNode => self.cycle_node(1),
             Intent::Open => {
                 if self.config.open_with_system {
+                    self.netmap = false;
                     self.open_selected();
                 } else {
                     self.push_status("SYSTEM OPEN DISABLED", Tone::Normal);
@@ -1342,6 +1343,7 @@ impl App {
             return;
         }
         if self.selected_is_parent() {
+            self.netmap = false;
             self.go_parent();
             return;
         }
