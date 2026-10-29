@@ -890,10 +890,21 @@ pub fn draw_netmap(
 ) {
     let width = screen_width();
     let height = screen_height();
-    draw_rectangle(0.0, 0.0, width, height, alpha(crate::theme::VOID, 0.92));
-    let cx = width * 0.5;
-    let cy = height * 0.5;
-    let scale = 8.0;
+    draw_rectangle(0.0, 0.0, width, height, alpha(crate::theme::VOID, 0.94));
+    let panel_w = (width - PAD * 4.0).min(1200.0);
+    let panel_h = (height - PAD * 4.0).min(760.0);
+    let px = (width - panel_w) * 0.5;
+    let py = (height - panel_h) * 0.5;
+    panel(
+        px,
+        py,
+        panel_w,
+        panel_h,
+        alpha(crate::theme::CYAN_DIM, 0.82),
+    );
+    let cx = px + panel_w * 0.5;
+    let cy = py + panel_h * 0.5;
+    let scale = (panel_w.min(panel_h) * 0.014).max(7.0);
     for link in &layout.links {
         let (Some(a), Some(b)) = (layout.nodes.get(link.source), layout.nodes.get(link.target))
         else {
@@ -903,7 +914,7 @@ pub fn draw_netmap(
         let ay = cy - a.position.z * scale;
         let bx = cx + b.position.x * scale;
         let by = cy - b.position.z * scale;
-        draw_line(ax, ay, bx, by, 1.0, alpha(crate::theme::MAGENTA, 0.18));
+        draw_line(ax, ay, bx, by, 1.0, alpha(crate::theme::MAGENTA, 0.24));
     }
     for node in &layout.nodes {
         let x = cx + node.position.x * scale;
@@ -920,18 +931,18 @@ pub fn draw_netmap(
         } else {
             crate::theme::TEXT_MUTED
         };
-        let r = if sel { 4.0 } else { 2.6 };
+        let r = if sel { 4.6 } else { 3.2 };
         draw_circle(x, y, r, color);
     }
     let pulse = (time * 0.6).sin() * 0.5 + 0.5;
     fonts.draw(
-        "NETMAP  //  F4 CLOSE",
-        cx,
-        28.0,
+        "NETMAP  //  SECTOR TOPOLOGY  //  F4 CLOSE",
+        px + 14.0,
+        py + 10.0,
         crate::theme::FONT_SMALL,
-        alpha(crate::theme::CYAN, 0.8 + pulse * 0.2),
+        alpha(crate::theme::CYAN, 0.9 + pulse * 0.1),
         true,
-        crate::render::text::Align::Center,
+        crate::render::text::Align::Left,
     );
 }
 
@@ -958,7 +969,7 @@ pub fn draw_debug(fonts: &Fonts, text: &str) {
 
 fn panel(x: f32, y: f32, width: f32, height: f32, border: Color) {
     draw_rectangle(x, y, width, height, alpha(DEEP_PANEL, PANEL_ALPHA));
-    draw_rectangle(x, y, width, height, border);
+    draw_rectangle_lines(x, y, width, height, 1.0, border);
     let accent = 14.0;
     draw_line(x, y, x + accent, y, 1.5, alpha(CYAN, 0.9));
     draw_line(x, y, x, y + accent, 1.5, alpha(CYAN, 0.9));
