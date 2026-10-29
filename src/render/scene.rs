@@ -247,25 +247,34 @@ impl Scene<'_> {
                 previous = projected_end;
             }
             if !self.reduced_motion {
-                let count = if link.cross_galaxy {
-                    4
-                } else if highlighted {
-                    2
+                let count = if highlighted {
+                    5
+                } else if link.cross_galaxy {
+                    3
                 } else {
-                    0
+                    1
                 };
                 for p in 0..count {
-                    let t = ((time * 0.38 * motion + (seed.rotate_left(p * 11) as f32) * 0.000173)
+                    let speed = if highlighted { 0.52 } else { 0.34 };
+                    let t = ((time * speed * motion
+                        + (seed.rotate_left(p * 13) as f32) * 0.000191
+                        + p as f32 * 0.17)
                         % 1.0)
                         .clamp(0.0, 1.0);
                     let pos = bezier_point(&points, t);
                     if let Some(projected) = self.camera.project(pos, width, height) {
-                        let alpha_f = (1.0 - projected.depth / 66.0).clamp(0.0, 1.0);
+                        let alpha_f = (1.0 - projected.depth / 62.0).clamp(0.0, 1.0);
+                        let pulse = (t * 6.0).sin().abs();
+                        let color = if highlighted {
+                            alpha(ICE, alpha_f * (0.7 + pulse * 0.3))
+                        } else {
+                            alpha(ICE, alpha_f * 0.75)
+                        };
                         draw_circle(
                             projected.screen.x,
                             projected.screen.y,
-                            1.5,
-                            alpha(ICE, alpha_f * 0.9),
+                            if highlighted { 1.8 } else { 1.4 },
+                            color,
                         );
                     }
                 }

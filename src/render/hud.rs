@@ -353,6 +353,16 @@ pub fn draw_selection(fonts: &Fonts, selected: Option<&Entry>, parent: Option<&P
                     false,
                     Align::Left,
                 );
+                fonts.draw_elided(
+                    "TRACE: link resolution active",
+                    content_x,
+                    top + 14.0,
+                    FONT_TINY,
+                    width - 24.0,
+                    alpha(CYAN_DIM, 0.7),
+                    false,
+                    Align::Left,
+                );
                 if entry.link_broken {
                     fonts.draw(
                         "BROKEN LINK",
@@ -364,7 +374,7 @@ pub fn draw_selection(fonts: &Fonts, selected: Option<&Entry>, parent: Option<&P
                         Align::Right,
                     );
                 }
-                top += 20.0;
+                top += 34.0;
             }
             if let Some(error) = &entry.metadata_error {
                 fonts.draw_elided(

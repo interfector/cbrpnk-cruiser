@@ -99,6 +99,7 @@ pub struct App {
     handshake: Option<HandshakeLine>,
     visited: HashMap<PathBuf, f32>,
     netmap: bool,
+    recent: Vec<PathBuf>,
     host: String,
     last_frame_ms: f32,
     windows: WindowManager,
@@ -168,6 +169,7 @@ impl App {
             handshake: None,
             visited: HashMap::new(),
             netmap: false,
+            recent: Vec::new(),
             host,
             last_frame_ms: 0.0,
             windows: WindowManager::new(),
@@ -235,6 +237,13 @@ impl App {
                     },
                     Tone::Command,
                 );
+            }
+            if input::shift_down() && is_key_pressed(KeyCode::Backspace) {
+                if let Some(prev) = self.recent.last().cloned() {
+                    self.recent.pop();
+                    self.navigate_to(prev, false);
+                    self.push_status("RECENT JUMP", Tone::Command);
+                }
             }
             if is_key_pressed(KeyCode::F11) || (is_key_down_alt() && is_key_pressed(KeyCode::Enter))
             {
@@ -1233,6 +1242,13 @@ impl App {
         self.scanning = false;
 
         if navigation.is_some() {
+            if self.cwd != path {
+                self.recent.retain(|p| p != &self.cwd);
+                self.recent.push(self.cwd.clone());
+                if self.recent.len() > 32 {
+                    self.recent.drain(0..self.recent.len() - 32);
+                }
+            }
             self.selected = None;
             self.locked = false;
             self.filter = None;
@@ -1314,6 +1330,13 @@ impl App {
         if path == self.cwd && !via_symlink {
             self.rescan();
             return;
+        }
+        if path != self.cwd {
+            self.recent.retain(|p| p != &self.cwd);
+            self.recent.push(self.cwd.clone());
+            if self.recent.len() > 32 {
+                self.recent.drain(0..self.recent.len() - 32);
+            }
         }
         self.auto_enter_guard = AUTO_ENTER_GUARD;
         self.push_status(format!("OPEN {}", path.display()), Tone::Command);
