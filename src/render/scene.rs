@@ -369,7 +369,18 @@ impl Scene<'_> {
                 .map(|path| path == item.node.path.as_path())
                 .unwrap_or(false);
             let glow = (self.visited_glow)(item.node.path.as_path());
-            let mut color = node_color(item.node, selected, fade);
+            let mut color = if let Some(entry) = self.entries.get(item.node.entry_index) {
+                node_color(
+                    item.node,
+                    entry,
+                    selected,
+                    fade,
+                    self.time,
+                    self.reduced_motion,
+                )
+            } else {
+                node_color_fallback(item.node, selected, fade)
+            };
             if glow > 0.0 && !selected {
                 color = alpha(ICE, (0.68 * fade + glow * 0.32).clamp(0.0, 0.98));
                 let x = item.projected.screen.x;
@@ -708,7 +719,44 @@ fn alpha_multiply(color: Color, factor: f32) -> Color {
     alpha(color, color.a * factor.clamp(0.0, 1.0))
 }
 
-fn node_color(node: &Node, selected: bool, fade: f32) -> Color {
+fn node_color(
+    node: &Node,
+    entry: &crate::fs::Entry,
+    selected: bool,
+    fade: f32,
+    time: f32,
+    reduced: bool,
+) -> Color {
+    if selected {
+        return alpha(ICE, 1.0);
+    }
+    if entry.link_broken || entry.metadata_error.is_some() {
+        let pulse = if reduced {
+            0.45
+        } else {
+            ((time * 4.0).sin() * 0.5 + 0.5).clamp(0.0, 1.0)
+        };
+        return alpha(MAGENTA, 0.5 + pulse * 0.4 * fade);
+    }
+    if !entry.readable && node.kind == EntryKind::Directory {
+        let pulse = if reduced {
+            0.35
+        } else {
+            ((time * 2.6).sin() * 0.5 + 0.5).clamp(0.0, 1.0)
+        };
+        return alpha(MAGENTA, 0.45 + pulse * 0.2 * fade);
+    }
+    let base = match node.kind {
+        EntryKind::Directory => CYAN,
+        EntryKind::File if node.executable => AMBER,
+        EntryKind::File => alpha(ICE, 0.86),
+        EntryKind::Symlink => MAGENTA,
+        EntryKind::Other => TEXT_MUTED,
+    };
+    alpha(base, 0.38 + 0.62 * fade)
+}
+
+fn node_color_fallback(node: &Node, selected: bool, fade: f32) -> Color {
     let base = match node.kind {
         EntryKind::Directory => CYAN,
         EntryKind::File if node.executable => AMBER,
