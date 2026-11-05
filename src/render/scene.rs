@@ -397,8 +397,10 @@ impl Scene<'_> {
             if galaxy_detail {
                 galaxy_budget -= 1;
             }
+            let entry = self.entries.get(item.node.entry_index);
             self.draw_node_shape(
                 item.node,
+                entry,
                 item.projected.screen,
                 screen_radius,
                 color,
@@ -464,6 +466,7 @@ impl Scene<'_> {
     fn draw_node_shape(
         &self,
         node: &Node,
+        entry: Option<&crate::fs::Entry>,
         center: Vec2,
         radius: f32,
         color: Color,
@@ -475,29 +478,35 @@ impl Scene<'_> {
         let x = center.x;
         let y = center.y;
         draw_circle(x, y, radius * 1.65, alpha(color, 0.035));
+        let unreadable_dir =
+            entry.is_some_and(|e| !e.readable && node.kind == EntryKind::Directory);
         match node.kind {
             EntryKind::Directory => {
-                if galaxy_detail {
-                    self.draw_galaxy(node, color, width, height);
-                }
-                let step = if self.reduced_motion {
-                    0.0
+                if unreadable_dir {
+                    self.draw_firewall(x, y, radius.max(9.0), color, selected);
                 } else {
-                    self.time * 13.0
-                };
-                for segment in 0..3 {
-                    macroquad::prelude::draw_arc(
-                        x,
-                        y,
-                        16,
-                        radius,
-                        step + segment as f32 * 120.0,
-                        1.0,
-                        84.0,
-                        color,
-                    );
+                    if galaxy_detail {
+                        self.draw_galaxy(node, color, width, height);
+                    }
+                    let step = if self.reduced_motion {
+                        0.0
+                    } else {
+                        self.time * 13.0
+                    };
+                    for segment in 0..3 {
+                        macroquad::prelude::draw_arc(
+                            x,
+                            y,
+                            16,
+                            radius,
+                            step + segment as f32 * 120.0,
+                            1.0,
+                            84.0,
+                            color,
+                        );
+                    }
+                    draw_circle_lines(x, y, radius * 0.42, 1.0, alpha(color, 0.55));
                 }
-                draw_circle_lines(x, y, radius * 0.42, 1.0, alpha(color, 0.55));
             }
             EntryKind::File if node.executable => {
                 let points = [
@@ -609,6 +618,55 @@ impl Scene<'_> {
                     46.0,
                     alpha(CYAN, 0.75),
                 );
+            }
+        }
+    }
+
+    fn draw_firewall(&self, x: f32, y: f32, radius: f32, color: Color, selected: bool) {
+        let pulse = if self.reduced_motion {
+            0.45
+        } else {
+            (self.time * 3.4).sin() * 0.5 + 0.5
+        };
+        let base = alpha(color, 0.55 + pulse * 0.25);
+        let inner = radius * 0.72;
+        let outer = radius * (1.18 + if selected { 0.08 } else { 0.0 });
+        // hexagonal seal
+        for i in 0..6 {
+            let a1 = i as f32 * std::f32::consts::TAU / 6.0 + 0.12;
+            let a2 = (i + 1) as f32 * std::f32::consts::TAU / 6.0 + 0.12;
+            let p1 = Vec2::new(x + a1.cos() * outer, y + a1.sin() * outer);
+            let p2 = Vec2::new(x + a2.cos() * outer, y + a2.sin() * outer);
+            draw_line(p1.x, p1.y, p2.x, p2.y, 1.4, base);
+            let q1 = Vec2::new(x + a1.cos() * inner, y + a1.sin() * inner);
+            draw_line(p1.x, p1.y, q1.x, q1.y, 1.0, alpha(base, 0.45));
+        }
+        draw_circle_lines(x, y, outer, 1.2, alpha(base, 0.35));
+        // laser bars
+        let bars = 4;
+        for i in 0..bars {
+            let phase = if self.reduced_motion {
+                0.0
+            } else {
+                self.time * 1.8 + i as f32 * 0.7
+            };
+            let offset = (phase.sin() * inner * 0.55).clamp(-inner * 0.7, inner * 0.7);
+            let half = (outer * outer - offset * offset).max(0.0).sqrt() * 0.92;
+            let alpha_b = 0.22 + (pulse * 0.18);
+            draw_line(
+                x - half,
+                y + offset,
+                x + half,
+                y + offset,
+                1.0,
+                alpha(base, alpha_b),
+            );
+        }
+        if selected && !self.reduced_motion {
+            // breach attempt flicker
+            let flick = ((self.time * 22.0).sin() * 0.5 + 0.5) > 0.7;
+            if flick {
+                draw_circle_lines(x, y, outer * 1.08, 1.0, alpha(crate::theme::ICE, 0.35));
             }
         }
     }
